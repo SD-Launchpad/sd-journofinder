@@ -1,0 +1,51 @@
+# 示例品牌配置。复制一份改成你自己的品牌即可：
+#   journofinder campaign brands/<your-brand>.yaml
+#
+# 最小配置只需 brand + positioning + themes；其余都有合理默认值。
+
+brand: EverMind
+one_liner: "Memory is the defining line between a tool and an agent."
+positioning: >
+  EverMind 是面向 AI agent 的长期记忆系统，产品包括 EverOS 与 EverMe。
+  让 agent 拥有可演进的长期记忆，而不只是一次性的上下文窗口。
+launch: >
+  发布 EverOS v1 —— 首个支持跨会话自演进记忆的开源 agent memory 层，
+  在长程任务上把记忆召回准确率显著提升。
+
+# 行业 / 赛道 / vertical —— 也是 NewsAPI.ai 的检索关键词
+themes:
+  - AI memory
+  - long term memory for AI
+  - AI agents
+  - agent memory
+  - self-evolving AI
+
+# 竞品 —— 反查谁在报道竞品（往往就是该报道我们的记者）+ 用于中立第三方过滤
+competitors:
+  - Letta
+  - mem0
+  - Zep
+  - MemGPT
+
+# pitch 禁区
+do_not:
+  - 编造的 benchmark 数字
+  - 未经授权的客户名/logo
+
+discovery:
+  providers: [newsapi_ai, querit, brave]
+  date_window_days: 30
+  articles_count: 100
+  web_augment: true
+  languages: [eng]
+
+tiering:
+  model: anthropic/claude-sonnet-4.6
+  min_score: 60
+  max_journalists: 60
+
+enrich:
+  tier_a_top_n: 10
+
+budget:
+  max_deepdive: 10

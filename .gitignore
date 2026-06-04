@@ -1,0 +1,22 @@
+# secrets
+.env
+*.key
+
+# python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+
+# data / output
+*.db
+reports/*.html
+reports/*.csv
+reports/*.md
+!reports/.gitkeep
+
+# os
+.DS_Store

@@ -1,0 +1,31 @@
+[project]
+name = "sd-journofinder"
+version = "0.1.0"
+description = "媒体/记者搜索引擎 —— 用 NewsAPI.ai 文章署名反查记者，分层产出可建联的精准 pitch 名单"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "typer>=0.12",
+    "requests>=2.31",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0",
+    "openai>=1.40",
+]
+
+[project.scripts]
+journofinder = "journofinder.cli:app"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["journofinder"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
