@@ -30,6 +30,10 @@ _OUTLET_TIERS = [
     ("AI 垂直", ["marktechpost", "towards ai", "the decoder", "analytics india", "infoq", "synced",
                "unite.ai", "the batch", "import ai", "deeplearning", "kdnuggets", "hugging face",
                "the rundown", "ben's bites", "dev community", "hackernoon"]),
+    ("加密媒体", ["coindesk", "the block", "theblock", "decrypt", "blockworks", "cointelegraph",
+               "dl news", "dlnews", "unchained", "bankless", "crypto briefing", "protos",
+               "beincrypto", "the defiant", "cryptoslate", "blockbeats", "odaily", "panews",
+               "chaincatcher", "foresight news"]),
 ]
 
 
@@ -43,7 +47,7 @@ def _classify_outlet(outlet: str | None, outlet_uri: str | None) -> str:
     return "其他/地方"
 
 
-_TIER_ORDER = {"Tier-1 主流": 0, "科技媒体": 1, "AI 垂直": 2, "Newsletter/博客": 3, "其他/地方": 4}
+_TIER_ORDER = {"Tier-1 主流": 0, "科技媒体": 1, "加密媒体": 2, "AI 垂直": 3, "Newsletter/博客": 4, "其他/地方": 5}
 
 
 def _collect(conn: sqlite3.Connection, search_id: int) -> list[dict[str, Any]]:
@@ -126,7 +130,7 @@ table.media th{text-align:left;background:#f6f8fa;padding:8px 10px;color:#555;fo
 table.media td{padding:7px 10px;border-bottom:1px solid #f0f0f0;vertical-align:top}
 table.media .rp{color:#666;font-size:12px}
 .mt{font-size:11px;font-weight:700;padding:2px 7px;border-radius:999px}
-.mt-0{background:#dbeafe;color:#1d4ed8}.mt-1{background:#dcfce7;color:#15803d}.mt-2{background:#f3e8ff;color:#7e22ce}.mt-3{background:#fef9c3;color:#a16207}.mt-9,.mt-4{background:#f1f5f9;color:#64748b}
+.mt-0{background:#dbeafe;color:#1d4ed8}.mt-1{background:#dcfce7;color:#15803d}.mt-2{background:#ffedd5;color:#c2410c}.mt-3{background:#f3e8ff;color:#7e22ce}.mt-4{background:#fef9c3;color:#a16207}.mt-9,.mt-5{background:#f1f5f9;color:#64748b}
 .pitch{margin:10px 0 0;padding:12px 14px;background:#fffdf5;border:1px solid #f0e6c8;border-radius:8px}
 .pitch-h{font-size:12px;font-weight:700;color:#a16207;margin-bottom:6px}
 .pitch-sub{font-size:13px;margin-bottom:6px}
@@ -205,6 +209,7 @@ def _card_html(d: dict) -> str:
 _TIER_WHY = {
     "Tier-1 主流": "主流大刊，AI 报道权威、决策者受众覆盖广，背书价值最高",
     "科技媒体": "科技垂直媒体，AI/agent 报道的核心阵地，开发者+行业受众",
+    "加密媒体": "加密/Web3 头部媒体，懂 x402/稳定币/链上结算，受众正是 crypto-native 开发者与交易者",
     "AI 垂直": "AI 专业媒体，技术受众精准，懂 benchmark 与架构差异",
     "Newsletter/博客": "独立 newsletter/博客，垂直影响力，深度内容触达从业者",
     "其他/地方": "地方/行业媒体，补充长尾覆盖",
