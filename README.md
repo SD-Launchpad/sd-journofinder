@@ -47,6 +47,23 @@ journofinder campaign brands/example.yaml
 #    → reports/EverMind.html / .csv / .md
 ```
 
+### 推荐：异步深挖（先出报告，后补联系方式）
+
+Tier-A 的 MiroMind 深挖很慢（单个记者可能数分钟）。同步等 10 个会把报告阻塞很久。
+推荐"主交付先行、细节后置"：
+
+```bash
+# ① 秒级出报告（跳过深挖，所有人先用 inferred 邮箱）
+journofinder campaign brands/example.yaml --no-deepdive
+#    → 记下输出里的 search #<id>
+
+# ② 后台异步深挖 Tier-A（拿 verified 邮箱/twitter + sharp quotes）
+journofinder enrich <id> brands/example.yaml
+
+# ③ 深挖完重渲，报告升级成带 verified 联系方式
+journofinder show <id> brands/example.yaml
+```
+
 ### 输入：品牌配置（`brands/<brand>.yaml`）
 
 ```yaml

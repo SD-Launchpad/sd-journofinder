@@ -143,8 +143,12 @@ def pitch(conn: sqlite3.Connection, search_id: int, cfg: BrandConfig,
 # ---------- 完整 campaign ----------
 
 def run_campaign(cfg: BrandConfig, db_path: str | Path, out_path: str | Path,
-                 skip_discovery: bool = False) -> dict:
-    """跑完整漏斗，产出报告。返回交付摘要。"""
+                 skip_discovery: bool = False, no_deepdive: bool = False) -> dict:
+    """跑完整漏斗，产出报告。返回交付摘要。
+
+    no_deepdive=True：跳过 Tier-A 的 MiroMind 深挖（很慢），只做邮箱规则推断 →
+    秒级出报告。之后可异步 `journofinder enrich <search_id>` 补深挖再 `show` 重渲。
+    """
     db.init_schema(db_path)
     conn = db.get_conn(db_path)
     try:
@@ -157,8 +161,8 @@ def run_campaign(cfg: BrandConfig, db_path: str | Path, out_path: str | Path,
         tiers = tier(conn, search_id, cfg, scored)
         enrich.run_enrichment(
             conn, search_id, tiers, scored,
-            tier_a_top_n=cfg.enrich.tier_a_top_n,
-            max_deepdive=cfg.budget.max_deepdive,
+            tier_a_top_n=0 if no_deepdive else cfg.enrich.tier_a_top_n,
+            max_deepdive=0 if no_deepdive else cfg.budget.max_deepdive,
         )
         pitch(conn, search_id, cfg, scored, tiers)
 
