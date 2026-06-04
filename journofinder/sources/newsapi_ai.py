@@ -29,11 +29,30 @@ logger = logging.getLogger("journofinder.newsapi_ai")
 RATE_LIMIT_SECONDS = 1.0
 
 
-KEYWORD_LIMIT = 15  # Event Registry 免费档单查询关键词上限
+WORD_LIMIT = 15  # Event Registry 免费档单查询的【词数】上限（"AI memory"=2 词，不是按短语数！）
 
 
-def _chunk(seq: list, n: int) -> list[list]:
-    return [seq[i:i + n] for i in range(0, len(seq), n)]
+def _chunk_by_words(keywords: list[str], max_words: int = WORD_LIMIT) -> list[list[str]]:
+    """按累计词数 ≤ max_words 贪心分组，确保每组 OR 查询都不超 NewsAPI 限制。
+
+    单个短语本身就超限（罕见）时单独成组并截断到前 max_words 个词。
+    """
+    groups: list[list[str]] = []
+    cur: list[str] = []
+    cur_words = 0
+    for kw in keywords:
+        wc = max(1, len((kw or "").split()))
+        if wc > max_words:  # 超长短语：截断并单独成组
+            if cur:
+                groups.append(cur); cur, cur_words = [], 0
+            groups.append([" ".join(kw.split()[:max_words])])
+            continue
+        if cur_words + wc > max_words:
+            groups.append(cur); cur, cur_words = [], 0
+        cur.append(kw); cur_words += wc
+    if cur:
+        groups.append(cur)
+    return groups
 
 
 def fetch_articles(
@@ -54,7 +73,8 @@ def fetch_articles(
 
     - sort_by: "date"（最新）| "sourceImportance"（按来源权威度，把 Tier-1 大刊顶上来）| "rel"
     - pages: 翻几页（每页 articles_count 篇）扩大池子
-    - 关键词 >15 自动分组（免费档单查询上限 15），分组 OR 查询再合并去重
+    - 关键词按【词数】≤15 自动分组（NewsAPI 免费档单查询词数上限，"AI memory"=2 词），
+      分组 OR 查询再合并去重，确保不触发 "Too many keywords" 错误
     """
     api_key = env.get("NEWSAPI_AI_KEY")
     if not api_key:
@@ -67,10 +87,10 @@ def fetch_articles(
     langs = languages or ["eng"]
     count = min(max(articles_count, 1), 100)  # Event Registry 单页上限 100
 
-    # 关键词 ≤15 分组；每组翻 pages 页。
+    # 关键词按【词数】≤15 分组（不是短语数）；每组翻 pages 页。
     seen_u: set[str] = set()
     raw: list[dict] = []
-    for group in _chunk([k for k in keywords if k], KEYWORD_LIMIT):
+    for group in _chunk_by_words([k for k in keywords if k]):
         for page in range(1, max(1, pages) + 1):
             got = _fetch(api_key, url, group, since_iso, until_iso, langs, count, sort_by, page)
             # 抗毒：某组 OR 查询第 1 页为空且组内不止一个关键词，逐词重试（坏词只损失自己）
