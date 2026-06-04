@@ -19,8 +19,10 @@ import yaml
 class DiscoveryCfg:
     # 数据源：newsapi_ai 为主，querit/brave/mirothinker 补召（缺 key 自动跳过）
     providers: list[str] = field(default_factory=lambda: ["newsapi_ai", "querit", "brave"])
-    date_window_days: int = 30          # 只看近 N 天的报道
+    date_window_days: int = 30          # 只看近 N 天的报道（NewsAPI 免费档上限 ~30）
     articles_count: int = 100           # NewsAPI.ai 单页上限 100
+    pages: int = 1                      # 翻几页扩大池子
+    sort_by: str = "date"               # date | sourceImportance(顶 Tier-1 大刊) | rel
     web_augment: bool = True            # 是否用 querit/brave/mirothinker 补召
     languages: list[str] = field(default_factory=lambda: ["eng"])
 

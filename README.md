@@ -26,8 +26,23 @@
 | 3. score | 每个记者对品牌空间的相关度 0-100 | deepseek（便宜批量） |
 | 4. tier | A/B/drop 分层，中立第三方过滤（drop 竞品 owned media/通稿/农场） | claude-sonnet（旗舰判断） |
 | 5. enrich | Tier-A 深挖 verified 邮箱/twitter + sharp quotes；Tier-B 邮箱规则推断 | MiroMind + 规则 |
-| 6. pitch | 每个记者 1-3 个 angle，引用其近期具体报道 | claude-sonnet |
-| 7. render | 🟢A/🟡B 分层 HTML + CSV + MD | 本地 |
+| 6. pitch | 每个记者 1-3 个 angle + **一封可直接发的完整 pitch（subject+body，"为什么他们必须报道你"）** | claude-sonnet（并发） |
+| 7. render | **两层报告**：📰 媒体清单（Layer 1，含"为什么相关"+层级）→ 👤 记者明细（Layer 2，含 pitch）。🟢A/🟡B + HTML/CSV/MD | 本地 |
+
+### 报告两层结构
+
+- **Layer 1 媒体清单**：按媒体聚合，标注层级（Tier-1 主流 / 科技 / AI 垂直 / Newsletter / 地方）+ "为什么这家媒体相关"（权威性 + 该媒体哪些记者近期写了什么）
+- **Layer 2 记者明细**：每个记者的分层理由（为什么是他）+ 1-3 angle + 完整 pitch（subject + body）
+
+### 召回与 Tier-1 大刊（NewsAPI 调参）
+
+`brands/<brand>.yaml` 的 `discovery` 段：
+- `sort_by: sourceImportance` —— 按来源权威度排序，把 WSJ/NYT/Bloomberg 等 **Tier-1 大刊顶上来**（默认 `date` 会被高产低质源淹没）
+- `pages: 3` —— 翻多页扩大池子
+- `date_window_days: 30` —— **NewsAPI 免费档只索引近 ~30 天**，设更大也取不到（要 60/90 天需付费档）
+- 关键词含宽词（`AI model`/`artificial intelligence`）才能反查到大刊的 AI 口记者；纯 niche 词只能捞到垂直媒体
+- `tiering.min_score` 调低（如 40）= recall 优先，把二级媒体也捞进来靠分层过滤
+- paywall 不影响发现：大刊记者署名照常拿得到（只有正文素材会少）
 
 ## 快速开始
 

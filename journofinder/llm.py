@@ -267,7 +267,14 @@ def classify_tiers(
 
 # ---------- 3. pitch angle（founder → journalist） ----------
 
-def generate_pitch_angles(brand_summary: str, journalist_name: str, top_articles: list[dict]) -> list[dict]:
+def generate_pitch_package(
+    brand_summary: str, journalist_name: str, outlet: str | None,
+    top_articles: list[dict], do_not: list[str] | None = None,
+) -> dict:
+    """一次调用同时产出：2-3 个 pitch angle + 一封可直接发的完整 pitch（subject + body）。
+
+    返回 {"angles": [{angle, references_article}], "pitch": {"subject", "body"}}。
+    """
     lines: list[str] = []
     for i, it in enumerate(top_articles[:3], 1):
         date_s = (it.get("published_at") or "")[:10]
@@ -275,42 +282,51 @@ def generate_pitch_angles(brand_summary: str, journalist_name: str, top_articles
         summary = (it.get("body") or "")[:300]
         lines.append(f'{i}. "{title}" ({date_s}) — {summary}')
     block = "\n".join(lines) if lines else "(no recent relevant articles)"
-    prompt = f"""We are a founder pitching a product launch to a JOURNALIST. Based on what
-this journalist recently wrote, suggest 2-3 specific, sharp pitch angles.
+    guard = ("\nHard guardrails (do NOT violate):\n- " + "\n- ".join(do_not)) if do_not else ""
+
+    prompt = f"""You are a world-class PR strategist and storyteller pitching a product launch
+to a specific JOURNALIST. Produce both sharp angles AND a ready-to-send pitch email.
 
 Brand / launch context:
 {brand_summary}
 
-Journalist: {journalist_name}
+Journalist: {journalist_name} ({outlet or 'unknown outlet'})
 Their recent relevant articles:
 {block}
+{guard}
 
-For each angle:
-- Reference a SPECIFIC argument, story, or theme from this journalist's recent work
-- Show how our launch extends, challenges, complicates, or gives a fresh data point to that story
-- Be a story hook, not a feature list. 1-2 sentences. Concrete and specific.
-- No generic "this aligns with your interests"; no fabricated numbers or named customers.
+PART 1 — angles: 2-3 specific story hooks. Each must reference a SPECIFIC argument/story/theme
+from THIS journalist's recent work and show how our launch extends, challenges, complicates, or
+gives a fresh data point to it. Concrete and specific; no generic "this aligns with your interests".
+
+PART 2 — pitch: a compelling, ready-to-send cold pitch email to this journalist. It must make the
+case for WHY THEY, SPECIFICALLY, MUST COVER THIS NOW. Requirements:
+- subject: punchy, specific, newsworthy (<= 12 words). Not clickbait.
+- body: 110-170 words. Open with a hook tied to their recent piece (show you read it). State the
+  single most newsworthy claim (the launch + the one number/fact that matters). Explain why it
+  matters to THEIR beat and audience, and why it's timely. One clear, low-friction CTA (offer
+  exclusive/early access/data/interview). Confident, concrete, no hype, no fabricated numbers or
+  customers. First person ("we"), addressed to the journalist by first name.
 
 Return JSON only:
-[
-  {{"angle": "...", "references_article": "<article title>"}},
-  ...
-]"""
+{{
+  "angles": [{{"angle": "...", "references_article": "<article title>"}}],
+  "pitch": {{"subject": "...", "body": "..."}}
+}}"""
     try:
-        result = call_json(pitch_model(), prompt, max_tokens=1024)
+        result = call_json(pitch_model(), prompt, max_tokens=1600)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("generate_pitch_angles 失败: %s", exc)
-        return []
-    if not isinstance(result, list):
-        return []
-    cleaned: list[dict] = []
-    for e in result:
+        logger.warning("generate_pitch_package 失败: %s", exc)
+        return {"angles": [], "pitch": {}}
+    if not isinstance(result, dict):
+        return {"angles": [], "pitch": {}}
+    angles = []
+    for e in (result.get("angles") or []):
         if isinstance(e, dict) and e.get("angle"):
-            cleaned.append({
-                "angle": str(e["angle"]),
-                "references_article": str(e.get("references_article", "")),
-            })
-    return cleaned
+            angles.append({"angle": str(e["angle"]), "references_article": str(e.get("references_article", ""))})
+    pitch = result.get("pitch") or {}
+    pitch = {"subject": str(pitch.get("subject", "")), "body": str(pitch.get("body", ""))} if isinstance(pitch, dict) else {}
+    return {"angles": angles, "pitch": pitch}
 
 
 # ---------- 4. MiroMind 记者补召（强搜索） ----------

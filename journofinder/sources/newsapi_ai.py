@@ -29,6 +29,13 @@ logger = logging.getLogger("journofinder.newsapi_ai")
 RATE_LIMIT_SECONDS = 1.0
 
 
+KEYWORD_LIMIT = 15  # Event Registry 免费档单查询关键词上限
+
+
+def _chunk(seq: list, n: int) -> list[list]:
+    return [seq[i:i + n] for i in range(0, len(seq), n)]
+
+
 def fetch_articles(
     keywords: list[str],
     *,
@@ -36,12 +43,18 @@ def fetch_articles(
     until_iso: str | None = None,
     languages: list[str] | None = None,
     articles_count: int = 100,
+    sort_by: str = "date",
+    pages: int = 1,
 ) -> list[dict[str, Any]]:
     """按关键词查文章，返回归一化的 article dict（含 authors / source）。
 
     每个 dict：
       {url, title, body, source_title, source_uri, published_at, sentiment,
        keyword_matched, authors: [{name, uri, is_agency}]}
+
+    - sort_by: "date"（最新）| "sourceImportance"（按来源权威度，把 Tier-1 大刊顶上来）| "rel"
+    - pages: 翻几页（每页 articles_count 篇）扩大池子
+    - 关键词 >15 自动分组（免费档单查询上限 15），分组 OR 查询再合并去重
     """
     api_key = env.get("NEWSAPI_AI_KEY")
     if not api_key:
@@ -54,20 +67,24 @@ def fetch_articles(
     langs = languages or ["eng"]
     count = min(max(articles_count, 1), 100)  # Event Registry 单页上限 100
 
-    # 先 OR 合并查询（省 token）；若空且关键词不止一个，逐关键词重试（抗毒：
-    # 某个宽泛/非法关键词会让整条 OR 查询返回空，逐词查时坏词只损失自己）。
-    raw = _fetch(api_key, url, keywords, since_iso, until_iso, langs, count)
-    if not raw and len(keywords) > 1:
-        logger.info("NewsAPI.ai OR 查询为空，逐关键词重试（抗毒）")
-        seen_u: set[str] = set()
-        merged: list[dict] = []
-        for kw in keywords:
-            for r in _fetch(api_key, url, [kw], since_iso, until_iso, langs, count):
+    # 关键词 ≤15 分组；每组翻 pages 页。
+    seen_u: set[str] = set()
+    raw: list[dict] = []
+    for group in _chunk([k for k in keywords if k], KEYWORD_LIMIT):
+        for page in range(1, max(1, pages) + 1):
+            got = _fetch(api_key, url, group, since_iso, until_iso, langs, count, sort_by, page)
+            # 抗毒：某组 OR 查询第 1 页为空且组内不止一个关键词，逐词重试（坏词只损失自己）
+            if not got and page == 1 and len(group) > 1:
+                logger.info("NewsAPI.ai 组 OR 查询为空，逐关键词重试（抗毒）")
+                for kw in group:
+                    got += _fetch(api_key, url, [kw], since_iso, until_iso, langs, count, sort_by, 1)
+            for r in got:
                 u = (r.get("url") or "").strip()
                 if u and u not in seen_u:
                     seen_u.add(u)
-                    merged.append(r)
-        raw = merged
+                    raw.append(r)
+            if not got:  # 该页没结果，后续页也不必翻
+                break
 
     kw_lower = [(k, k.lower()) for k in keywords if k]
     out: list[dict[str, Any]] = []
@@ -120,6 +137,8 @@ def _fetch(
     until_iso: str | None,
     langs: list[str],
     count: int,
+    sort_by: str = "date",
+    page: int = 1,
 ) -> list[dict]:
     """一次 getArticles 调用。出错/空返回 []。"""
     payload: dict[str, Any] = {
@@ -127,9 +146,9 @@ def _fetch(
         "keyword": keywords,
         "keywordOper": "or",
         "lang": langs,
-        "articlesPage": 1,
+        "articlesPage": page,
         "articlesCount": count,
-        "articlesSortBy": "date",
+        "articlesSortBy": sort_by,
         "dataType": ["news", "pr", "blog"],
         "includeArticleAuthors": True,
         "includeArticleSourceInfo": True,
