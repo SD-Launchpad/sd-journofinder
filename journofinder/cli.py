@@ -33,13 +33,15 @@ def campaign(
     db_path: str = typer.Option("journofinder.db", "--db", help="SQLite 路径"),
     out: str = typer.Option("", "--out", help="HTML 输出路径（默认 reports/<brand>.html）"),
     skip_discovery: bool = typer.Option(False, "--skip-discovery", help="跳过抓取，用库内已有文章重跑"),
+    no_deepdive: bool = typer.Option(False, "--no-deepdive", help="跳过 Tier-A MiroMind 深挖（很慢），秒级出报告；之后可异步 enrich + show 补全"),
 ):
     """跑完整漏斗：discover → aggregate → score → tier → enrich → pitch → render。"""
     from . import pipeline  # 延迟导入，避免无 key 时 import 链报错
 
     cfg = load_brand_config(brand_yaml)
     out_path = Path(out) if out else _default_out(cfg.brand)
-    summary = pipeline.run_campaign(cfg, db_path, out_path, skip_discovery=skip_discovery)
+    summary = pipeline.run_campaign(cfg, db_path, out_path,
+                                    skip_discovery=skip_discovery, no_deepdive=no_deepdive)
     typer.echo("")
     typer.echo(f"✅ 完成 search #{summary['search_id']}：Tier A={summary['tier_a']} · "
                f"Tier B={summary['tier_b']} · drop={summary['dropped']}")
@@ -68,6 +70,39 @@ def tier(
         )
         conn.commit()
         typer.echo(f"✅ 记者 #{journalist_id} 在 search #{search_id} 手动设为 {v}")
+    finally:
+        conn.close()
+
+
+@app.command()
+def enrich(
+    search_id: int = typer.Argument(..., help="search id"),
+    brand_yaml: str = typer.Argument(..., help="品牌配置 YAML（取 enrich/budget 配置）"),
+    db_path: str = typer.Option("journofinder.db", "--db"),
+):
+    """对某次 search 的 Tier-A 记者跑 MiroMind 深挖（慢）。
+
+    异步交付模式：先 `campaign --no-deepdive` 秒出报告 → 本命令后台补深挖 →
+    `show` 重渲带上 verified 联系方式 + sharp quotes。
+    """
+    from . import aggregate
+    from . import enrich as enrich_mod
+
+    cfg = load_brand_config(brand_yaml)
+    conn = db.get_conn(db_path)
+    try:
+        journalists = aggregate.coverage_metrics(conn)
+        rows = conn.execute(
+            "SELECT journalist_id, tier, rationale FROM journo_tiers WHERE search_id = ?",
+            (search_id,),
+        ).fetchall()
+        tiers = {r["journalist_id"]: {"tier": r["tier"], "rationale": r["rationale"]} for r in rows}
+        stats = enrich_mod.run_enrichment(
+            conn, search_id, tiers, journalists,
+            tier_a_top_n=cfg.enrich.tier_a_top_n, max_deepdive=cfg.budget.max_deepdive,
+        )
+        typer.echo(f"✅ 深挖完成：deepdived={stats['deepdived']} · inferred={stats['inferred']}。"
+                   f"运行 `journofinder show {search_id} {brand_yaml}` 重渲报告。")
     finally:
         conn.close()
 
