@@ -32,7 +32,7 @@
 ### 报告两层结构
 
 - **Layer 1 媒体清单**：按媒体聚合，标注层级（Tier-1 主流 / 科技 / AI 垂直 / Newsletter / 地方）+ "为什么这家媒体相关"（权威性 + 该媒体哪些记者近期写了什么）
-- **Layer 2 记者明细**：每个记者的分层理由（为什么是他）+ 1-3 angle + 完整 pitch（subject + body）
+- **Layer 2 记者花名册 + 明细**：先一张花名册 summary table（记者 / 媒体 / 层级 / Tier / score / Email，一眼扫完、与媒体表呼应）→ 再每个记者的明细：分层理由（为什么是他）+ 1-3 angle + 完整 pitch（subject + body）
 
 ### 召回与 Tier-1 大刊（NewsAPI 调参）
 
