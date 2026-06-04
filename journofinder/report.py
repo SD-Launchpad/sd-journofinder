@@ -253,6 +253,29 @@ def _media_list_html(records: list[dict]) -> str:
     return "\n".join(parts)
 
 
+def _journalist_table_html(records: list[dict]) -> str:
+    """Layer 2 顶部：记者花名册（记者/媒体/层级/Tier/score/email），与媒体表呼应。"""
+    parts = ['<table class="media jt"><thead><tr><th>记者</th><th>媒体</th><th>层级</th>'
+             '<th>Tier</th><th>score</th><th>Email</th></tr></thead><tbody>']
+    for d in records:
+        mt = _classify_outlet(d.get("outlet"), d.get("outlet_uri"))
+        tier = d["tier"]
+        email = d.get("best_email") or "—"
+        esrc = "verified" if d.get("verified_email") else (d.get("email_source") or "")
+        parts.append(
+            f'<tr><td><b>{html.escape(d.get("name") or "")}</b></td>'
+            f'<td>{html.escape(d.get("outlet") or "未知")}</td>'
+            f'<td><span class="mt mt-{_TIER_ORDER.get(mt,9)}">{html.escape(mt)}</span></td>'
+            f'<td><span class="tag {tier}">{tier}</span></td>'
+            f'<td>{d.get("score","")}</td>'
+            f'<td class="rp">{html.escape(email)}'
+            + (f' <span class="lbl">({esrc})</span>' if email != "—" and esrc else "")
+            + '</td></tr>'
+        )
+    parts.append("</tbody></table>")
+    return "\n".join(parts)
+
+
 def _render_html(cfg: BrandConfig, records: list[dict]) -> str:
     a = [r for r in records if r["tier"] == "A"]
     b = [r for r in records if r["tier"] == "B"]
@@ -264,7 +287,8 @@ def _render_html(cfg: BrandConfig, records: list[dict]) -> str:
         '<div class="legend">🟢 <b>Tier A</b>：高相关高置信，强烈推荐建联（verified 联系方式 + sharp quotes）　|　'
         '🟡 <b>Tier B</b>：中度相关，可建联（inferred 邮箱）。drop 已排除。</div>',
         _media_list_html(records),
-        '<div class="sec">👤 记者明细（Layer 2 —— 每家媒体的具体记者 + pitch angle）</div>',
+        f'<div class="sec">👤 记者花名册（Layer 2 —— 共 {len(records)} 位，下方含分层理由 + 完整 pitch）</div>',
+        _journalist_table_html(records),
         f'<div class="sec">🟢 Tier A — 强推（{len(a)}）</div>',
         *a_cards,
         f'<div class="sec">🟡 Tier B — 可建联（{len(b)}）</div>',
@@ -312,7 +336,14 @@ def _render_md(cfg: BrandConfig, records: list[dict]) -> str:
         star = "🟢" if g["has_A"] else ""
         reporters = "、".join(n for n in g["reporters"] if n)
         lines.append(f"| {g['outlet']} | {g['media_tier']} | {g['n']} | {star} | {reporters} |")
-    lines += ["", "## 👤 记者明细（Layer 2）", ""]
+    # Layer 2 顶部：记者花名册
+    lines += ["", f"## 👤 记者花名册（Layer 2 —— 共 {len(records)} 位）", "",
+              "| 记者 | 媒体 | 层级 | Tier | score | Email |", "|---|---|---|---|---|---|"]
+    for d in records:
+        mt = _classify_outlet(d.get("outlet"), d.get("outlet_uri"))
+        email = d.get("best_email") or "—"
+        lines.append(f"| {d.get('name','')} | {d.get('outlet') or '未知'} | {mt} | {d['tier']} | {d.get('score','')} | {email} |")
+    lines += ["", "### 记者明细（分层理由 + angle + pitch）", ""]
     for tier, label in [("A", "🟢 Tier A — 强推"), ("B", "🟡 Tier B — 可建联")]:
         recs = [r for r in records if r["tier"] == tier]
         lines.append(f"## {label}（{len(recs)}）")
