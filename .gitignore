@@ -2,6 +2,10 @@
 .env
 *.key
 
+# live 品牌配置（可能含敏感定位/rebrand 信息）—— 只保留示例
+brands/*.yaml
+!brands/example.yaml
+
 # python
 __pycache__/
 *.pyc

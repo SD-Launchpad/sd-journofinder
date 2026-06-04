@@ -41,6 +41,8 @@ def discover(conn: sqlite3.Connection, cfg: BrandConfig) -> int:
             keywords, since_iso=since, until_iso=until,
             languages=cfg.discovery.languages,
             articles_count=cfg.discovery.articles_count,
+            sort_by=cfg.discovery.sort_by,
+            pages=cfg.discovery.pages,
         )
 
     if cfg.discovery.web_augment:
@@ -120,24 +122,34 @@ def tier(conn: sqlite3.Connection, search_id: int, cfg: BrandConfig, scored: lis
 # ---------- 6. pitch ----------
 
 def pitch(conn: sqlite3.Connection, search_id: int, cfg: BrandConfig,
-          scored: list[dict], tiers: dict[int, dict]) -> int:
-    """对 A/B 记者生成 1-3 个 pitch angle，写 pitch_angles。"""
+          scored: list[dict], tiers: dict[int, dict], max_workers: int = 8) -> int:
+    """对 A/B 记者生成 1-3 个 pitch angle，写 pitch_angles（并发，避免几十个顺序 sonnet 太慢）。"""
     brand_summary = cfg.brand_summary()
-    n = 0
-    for j in scored:
-        jid = j["journalist_id"]
-        if tiers.get(jid, {}).get("tier") not in ("A", "B"):
-            continue
-        top = aggregate.top_articles_for(conn, jid, limit=3)
-        angles = llm.generate_pitch_angles(brand_summary, j["name"], top)
-        conn.execute(
-            "INSERT OR REPLACE INTO pitch_angles (search_id, journalist_id, angles_json) VALUES (?, ?, ?)",
-            (search_id, jid, json.dumps(angles, ensure_ascii=False)),
-        )
-        n += 1
+    do_not = cfg.do_not
+    targets = [j for j in scored if tiers.get(j["journalist_id"], {}).get("tier") in ("A", "B")]
+    # 先在主线程取每个记者的近期文章（SQLite 连接不跨线程共享）
+    payloads = [(j["journalist_id"], j["name"], j.get("outlet"),
+                 aggregate.top_articles_for(conn, j["journalist_id"], limit=3))
+                for j in targets]
+
+    def _one(jid: int, name: str, outlet, top: list[dict]) -> tuple[int, dict]:
+        try:
+            return jid, llm.generate_pitch_package(brand_summary, name, outlet, top, do_not=do_not)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("pitch 失败 %s: %s", name, exc)
+            return jid, {"angles": [], "pitch": {}}
+
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        futures = [ex.submit(_one, jid, name, outlet, top) for jid, name, outlet, top in payloads]
+        for fut in as_completed(futures):
+            jid, pkg = fut.result()
+            conn.execute(
+                "INSERT OR REPLACE INTO pitch_angles (search_id, journalist_id, angles_json) VALUES (?, ?, ?)",
+                (search_id, jid, json.dumps(pkg, ensure_ascii=False)),
+            )
     conn.commit()
-    logger.info("pitch：%d 个记者生成 angle", n)
-    return n
+    logger.info("pitch：%d 个记者生成 angle + pitch", len(payloads))
+    return len(payloads)
 
 
 # ---------- 完整 campaign ----------
