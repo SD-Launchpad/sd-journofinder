@@ -32,27 +32,13 @@ RATE_LIMIT_SECONDS = 1.0
 WORD_LIMIT = 15  # Event Registry 免费档单查询的【词数】上限（"AI memory"=2 词，不是按短语数！）
 
 
-def _chunk_by_words(keywords: list[str], max_words: int = WORD_LIMIT) -> list[list[str]]:
-    """按累计词数 ≤ max_words 贪心分组，确保每组 OR 查询都不超 NewsAPI 限制。
+def _safe_keyword(kw: str, max_words: int = WORD_LIMIT) -> str:
+    """单个关键词短语截断到 ≤ max_words 个词，确保不触发 NewsAPI 的 15 词上限。
 
-    单个短语本身就超限（罕见）时单独成组并截断到前 max_words 个词。
+    逐关键词单独查询时，单个短语极少超 15 词；这是个安全网。
     """
-    groups: list[list[str]] = []
-    cur: list[str] = []
-    cur_words = 0
-    for kw in keywords:
-        wc = max(1, len((kw or "").split()))
-        if wc > max_words:  # 超长短语：截断并单独成组
-            if cur:
-                groups.append(cur); cur, cur_words = [], 0
-            groups.append([" ".join(kw.split()[:max_words])])
-            continue
-        if cur_words + wc > max_words:
-            groups.append(cur); cur, cur_words = [], 0
-        cur.append(kw); cur_words += wc
-    if cur:
-        groups.append(cur)
-    return groups
+    words = (kw or "").split()
+    return " ".join(words[:max_words]) if len(words) > max_words else (kw or "")
 
 
 def fetch_articles(
@@ -72,9 +58,10 @@ def fetch_articles(
        keyword_matched, authors: [{name, uri, is_agency}]}
 
     - sort_by: "date"（最新）| "sourceImportance"（按来源权威度，把 Tier-1 大刊顶上来）| "rel"
-    - pages: 翻几页（每页 articles_count 篇）扩大池子
-    - 关键词按【词数】≤15 自动分组（NewsAPI 免费档单查询词数上限，"AI memory"=2 词），
-      分组 OR 查询再合并去重，确保不触发 "Too many keywords" 错误
+    - pages: 每个关键词翻几页（每页 articles_count 篇）扩大池子
+    - **逐关键词单独查询**（不做 OR 合并）：记者反查要的是作者多样性，OR 合并会让 top
+      结果被少数高产源垄断、作者多样性塌掉（实测 OR 仅 32/100 带署名 vs 单词 70/100）。
+      单关键词查询也天然满足 NewsAPI 的 15 词上限（超长短语截断到 15 词）。
     """
     api_key = env.get("NEWSAPI_AI_KEY")
     if not api_key:
@@ -87,23 +74,19 @@ def fetch_articles(
     langs = languages or ["eng"]
     count = min(max(articles_count, 1), 100)  # Event Registry 单页上限 100
 
-    # 关键词按【词数】≤15 分组（不是短语数）；每组翻 pages 页。
+    # 逐关键词单独查（作者多样性最高）；每个关键词翻 pages 页。
     seen_u: set[str] = set()
     raw: list[dict] = []
-    for group in _chunk_by_words([k for k in keywords if k]):
+    for kw in [k for k in keywords if k]:
+        qkw = _safe_keyword(kw)  # 截断超长短语到 ≤15 词，确保不触发限制
         for page in range(1, max(1, pages) + 1):
-            got = _fetch(api_key, url, group, since_iso, until_iso, langs, count, sort_by, page)
-            # 抗毒：某组 OR 查询第 1 页为空且组内不止一个关键词，逐词重试（坏词只损失自己）
-            if not got and page == 1 and len(group) > 1:
-                logger.info("NewsAPI.ai 组 OR 查询为空，逐关键词重试（抗毒）")
-                for kw in group:
-                    got += _fetch(api_key, url, [kw], since_iso, until_iso, langs, count, sort_by, 1)
+            got = _fetch(api_key, url, [qkw], since_iso, until_iso, langs, count, sort_by, page)
             for r in got:
                 u = (r.get("url") or "").strip()
                 if u and u not in seen_u:
                     seen_u.add(u)
                     raw.append(r)
-            if not got:  # 该页没结果，后续页也不必翻
+            if not got:  # 该关键词该页没结果，后续页也不必翻
                 break
 
     kw_lower = [(k, k.lower()) for k in keywords if k]
