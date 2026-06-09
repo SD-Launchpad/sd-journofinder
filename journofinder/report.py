@@ -176,7 +176,7 @@ table.media .rp{color:var(--muted);font-size:12.5px}
 .contact{font-size:13.5px;margin:10px 0;padding:10px 13px;background:var(--accent-soft);border:1px solid #dbe3ec;border-radius:2px}
 .contact .lbl{color:var(--muted);font-family:var(--mono);font-size:11px}
 .eml-verified{color:var(--tier-a);font-weight:600}
-.eml-inferred{color:var(--tier-b)}
+.eml-inferred,.eml-unverified{color:var(--tier-b)}
 .rationale{font-size:14px;color:#555;font-style:italic;margin:8px 0}
 .angles{margin:12px 0 0;padding-left:0;list-style:none}
 .angles li{background:var(--accent-soft);border-left:2px solid var(--accent);padding:9px 13px;margin:6px 0;font-size:14.5px}
@@ -204,21 +204,30 @@ footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--rule);
 """
 
 
+def _email_display(d: dict) -> tuple[str | None, str, str]:
+    """(email, label, css). Accuracy-first / 宁缺勿编:
+    - verified (MiroMind 核实) → 可信,绿色
+    - author_uri (NewsAPI 署名,格式未核实) → 展示但明确标"未验证·待核实"
+    - inferred (按规则拼的) / none → 不展示(那是猜的)"""
+    if d.get("verified_email"):
+        return d["verified_email"], "✓ 已验证", "eml-verified"
+    if d.get("email_source") == "author_uri" and d.get("email"):
+        return d["email"], "未验证 · 署名推测，投递前请核实", "eml-unverified"
+    return None, "", ""
+
+
 def _contact_html(d: dict) -> str:
     bits = []
-    email = d.get("best_email")
+    email, label, cls = _email_display(d)
     if email:
-        src = d.get("email_source") or ("verified" if d.get("verified_email") else "")
-        cls = "eml-verified" if (d.get("verified_email") or src == "verified") else "eml-inferred"
-        tag = "verified" if cls == "eml-verified" else ("author_uri" if src == "author_uri" else "inferred")
-        bits.append(f'<span class="lbl">email:</span> <span class="{cls}">{html.escape(email)}</span> <span class="lbl">({tag})</span>')
+        bits.append(f'<span class="lbl">email:</span> <span class="{cls}">{html.escape(email)}</span> <span class="lbl">({label})</span>')
     if d.get("best_twitter"):
         bits.append(f'<span class="lbl">twitter:</span> {html.escape(d["best_twitter"])}')
     if d.get("best_personal"):
         u = html.escape(d["best_personal"])
         bits.append(f'<span class="lbl">page:</span> <a href="{u}">{u}</a>')
     if not bits:
-        bits.append('<span class="lbl">联系方式待补全</span>')
+        bits.append('<span class="lbl">邮箱未验证 / 未公开 —— 建议查媒体署名页或社媒</span>')
     return '<div class="contact">' + " · ".join(bits) + "</div>"
 
 
@@ -330,17 +339,18 @@ def _journalist_table_html(records: list[dict]) -> str:
     for d in records:
         mt = _classify_outlet(d.get("outlet"), d.get("outlet_uri"))
         tier = d["tier"]
-        email = d.get("best_email") or "—"
-        esrc = "verified" if d.get("verified_email") else (d.get("email_source") or "")
+        email, label, cls = _email_display(d)
+        if email:
+            email_cell = f'<span class="{cls}">{html.escape(email)}</span> <span class="lbl">({label})</span>'
+        else:
+            email_cell = '<span class="lbl">未验证 / 未公开</span>'
         parts.append(
             f'<tr><td><b>{html.escape(d.get("name") or "")}</b></td>'
             f'<td>{html.escape(d.get("outlet") or "未知")}</td>'
             f'<td><span class="mt mt-{_TIER_ORDER.get(mt,9)}">{html.escape(mt)}</span></td>'
             f'<td><span class="tag {tier}">{tier}</span></td>'
             f'<td>{d.get("score","")}</td>'
-            f'<td class="rp">{html.escape(email)}'
-            + (f' <span class="lbl">({esrc})</span>' if email != "—" and esrc else "")
-            + '</td></tr>'
+            f'<td class="rp">{email_cell}</td></tr>'
         )
     parts.append("</tbody></table>")
     return "\n".join(parts)
@@ -421,13 +431,16 @@ def _render_csv(records: list[dict], path: Path) -> None:
         for d in records:
             angles = [a.get("angle", "") for a in d.get("angles", [])][:3]
             angles += [""] * (3 - len(angles))
-            esrc = "verified" if d.get("verified_email") else (d.get("email_source") or "")
+            # accuracy-first: only verified or author_uri (labelled); inferred dropped
+            email, _label, _cls = _email_display(d)
+            esrc = "verified" if d.get("verified_email") else (
+                "author_uri (未验证)" if email else "")
             pitch = d.get("pitch") or {}
             w.writerow([
                 d["tier"], d.get("name", ""), d.get("outlet", ""),
                 _classify_outlet(d.get("outlet"), d.get("outlet_uri")), d.get("outlet_uri", ""),
                 d.get("score", ""), d.get("article_count", 0), (d.get("latest_date") or "")[:10],
-                d.get("best_email") or "", esrc, d.get("best_twitter") or "", d.get("best_personal") or "",
+                email or "", esrc, d.get("best_twitter") or "", d.get("best_personal") or "",
                 pitch.get("subject", ""), pitch.get("body", ""),
                 *angles, d.get("rationale", ""),
             ])
