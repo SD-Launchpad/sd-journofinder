@@ -11,6 +11,7 @@ import csv
 import html
 import json
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -100,41 +101,106 @@ def _collect(conn: sqlite3.Connection, search_id: int) -> list[dict[str, Any]]:
 
 # ---------- HTML ----------
 
+_FONTS = ('<link rel="preconnect" href="https://fonts.googleapis.com">'
+          '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
+          '<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">')
+
 _CSS = """
-body{font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;max-width:920px;margin:0 auto;padding:32px 20px;color:#1a1a1a;background:#fafafa}
-h1{font-size:26px;margin:0 0 4px}
-.sub{color:#666;margin:0 0 20px}
-.legend{background:#fff;border:1px solid #eee;border-radius:10px;padding:12px 16px;margin-bottom:24px;font-size:13px;color:#444}
-.sec{font-size:18px;margin:28px 0 12px;font-weight:600}
-.card{background:#fff;border:1px solid #eaeaea;border-radius:12px;padding:18px 20px;margin-bottom:14px}
-.card.A{border-left:4px solid #16a34a}
-.card.B{border-left:4px solid #eab308}
-.nm{font-size:17px;font-weight:600}
-.tag{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;vertical-align:middle;margin-left:8px}
-.tag.A{background:#dcfce7;color:#15803d}
-.tag.B{background:#fef9c3;color:#a16207}
-.meta{color:#666;font-size:13px;margin:3px 0 10px}
-.contact{font-size:13px;margin:8px 0;padding:8px 12px;background:#f6f8fa;border-radius:8px}
-.contact .lbl{color:#888}
-.eml-verified{color:#15803d;font-weight:600}
-.eml-inferred{color:#a16207}
-.rationale{font-size:13px;color:#555;font-style:italic;margin:6px 0}
-.angles{margin:10px 0 0;padding-left:0;list-style:none}
-.angles li{background:#f0f7ff;border-left:3px solid #3b82f6;padding:8px 12px;margin:6px 0;border-radius:0 8px 8px 0;font-size:14px}
-.angles .ref{display:block;color:#888;font-size:12px;margin-top:3px}
-.arts{font-size:12px;color:#777;margin-top:8px}
-.arts a{color:#555}
-.quotes{font-size:13px;margin:8px 0 0;padding-left:16px;color:#444}
-table.media{width:100%;border-collapse:collapse;font-size:13px;background:#fff;border:1px solid #eaeaea;border-radius:10px;overflow:hidden;margin-bottom:8px}
-table.media th{text-align:left;background:#f6f8fa;padding:8px 10px;color:#555;font-weight:600;border-bottom:1px solid #eaeaea}
-table.media td{padding:7px 10px;border-bottom:1px solid #f0f0f0;vertical-align:top}
-table.media .rp{color:#666;font-size:12px}
-.mt{font-size:11px;font-weight:700;padding:2px 7px;border-radius:999px}
-.mt-0{background:#dbeafe;color:#1d4ed8}.mt-1{background:#dcfce7;color:#15803d}.mt-2{background:#ffedd5;color:#c2410c}.mt-3{background:#f3e8ff;color:#7e22ce}.mt-4{background:#fef9c3;color:#a16207}.mt-9,.mt-5{background:#f1f5f9;color:#64748b}
-.pitch{margin:10px 0 0;padding:12px 14px;background:#fffdf5;border:1px solid #f0e6c8;border-radius:8px}
-.pitch-h{font-size:12px;font-weight:700;color:#a16207;margin-bottom:6px}
-.pitch-sub{font-size:13px;margin-bottom:6px}
-.pitch-body{font-size:13px;color:#333;line-height:1.55;white-space:normal}
+:root{
+  --paper:#faf8f3;--panel:#fffdf8;--ink:#23262b;--muted:#73706a;--rule:#e4ddcf;
+  --accent:#1e3a5f;--accent-soft:#eef2f7;
+  --tier-a:#2f6b46;--tier-a-bg:#eaf3ed;--tier-b:#9a6a1a;--tier-b-bg:#f6efe1;
+  --serif:"Source Serif 4",Georgia,"Songti SC","Noto Serif SC",serif;
+  --display:"Fraunces",Georgia,"Songti SC",serif;
+  --sans:"PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,monospace;
+}
+*{box-sizing:border-box}
+body{font-family:var(--serif);max-width:780px;margin:0 auto;padding:0 22px 80px;
+  line-height:1.7;color:var(--ink);background:var(--paper);-webkit-font-smoothing:antialiased;font-size:16px}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline;text-underline-offset:2px}
+
+/* Letterhead */
+.letterhead{padding:50px 0 30px;border-bottom:1px solid var(--rule);animation:rise .6s ease both}
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.22em;text-transform:uppercase;
+  color:var(--accent);margin-bottom:18px;display:flex;align-items:center;gap:11px}
+.eyebrow::before{content:"";width:26px;height:2px;background:var(--accent);display:inline-block}
+h1{font-family:var(--display);font-weight:600;font-size:46px;line-height:1.05;letter-spacing:-.015em;margin:0 0 8px}
+.sub{font-family:var(--display);font-weight:400;font-style:italic;font-size:21px;color:var(--muted);margin:0 0 16px;line-height:1.4}
+.report-meta{font-family:var(--mono);font-size:12px;color:var(--muted);letter-spacing:.04em}
+
+/* Stats */
+.statbar{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;background:var(--rule);
+  border:1px solid var(--rule);margin:36px 0 14px;animation:rise .6s .1s ease both}
+.stat{background:var(--panel);padding:16px 14px}
+.stat-num{font-family:var(--display);font-weight:600;font-size:30px;line-height:1;color:var(--accent)}
+.stat-num.a{color:var(--tier-a)}.stat-num.b{color:var(--tier-b)}
+.stat-label{font-family:var(--sans);font-size:11px;color:var(--muted);margin-top:7px}
+
+/* Section heads */
+.sec{font-family:var(--mono);font-size:12px;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--accent);margin:46px 0 16px;padding-bottom:9px;border-bottom:1px solid var(--rule);font-weight:600}
+
+/* The Brief */
+.brief-lead{font-family:var(--display);font-size:23px;font-weight:400;line-height:1.4;margin:6px 0 14px;letter-spacing:-.01em}
+.brief-body{font-size:15.5px;color:#41454c;margin:0 0 18px}
+.chips-label{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:16px 0 6px}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{font-family:var(--mono);font-size:12px;padding:5px 11px;background:var(--accent-soft);color:var(--accent);border-radius:2px}
+.chip.comp{background:#f3eee6;color:#7a5a2a}
+.legend{font-family:var(--sans);font-size:13px;color:var(--muted);margin:18px 0 0;line-height:1.7}
+.legend b{color:var(--ink)}
+
+/* Tables */
+table.media{width:100%;border-collapse:collapse;font-size:14px;border:1px solid var(--rule);margin-bottom:10px}
+table.media th{text-align:left;background:var(--panel);padding:11px 12px;color:var(--muted);font-weight:600;
+  border-bottom:1px solid var(--rule);font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+table.media td{padding:10px 12px;border-bottom:1px solid #efe9dc;vertical-align:top}
+table.media tr:last-child td{border-bottom:none}
+table.media .rp{color:var(--muted);font-size:12.5px}
+.mt{font-family:var(--mono);font-size:10.5px;font-weight:600;padding:2px 8px;border-radius:2px;white-space:nowrap}
+.mt-0{background:var(--accent-soft);color:var(--accent)}.mt-1{background:var(--tier-a-bg);color:var(--tier-a)}
+.mt-2{background:#f3eee6;color:#7a5a2a}.mt-3{background:#efeaf3;color:#5a4a7a}.mt-4{background:var(--tier-b-bg);color:var(--tier-b)}
+.mt-9,.mt-5{background:#f0ece3;color:#73706a}
+
+/* Cards */
+.card{background:var(--panel);border:1px solid var(--rule);border-left:3px solid var(--rule);
+  padding:22px 24px;margin-bottom:14px;break-inside:avoid}
+.card.A{border-left-color:var(--tier-a)}.card.B{border-left-color:var(--tier-b)}
+.nm{font-family:var(--display);font-size:24px;font-weight:600;letter-spacing:-.01em}
+.tag{font-family:var(--mono);font-size:10.5px;font-weight:600;letter-spacing:.05em;padding:2px 8px;border-radius:2px;vertical-align:middle;margin-left:9px}
+.tag.A{background:var(--tier-a-bg);color:var(--tier-a)}
+.tag.B{background:var(--tier-b-bg);color:var(--tier-b)}
+.meta{color:var(--muted);font-family:var(--mono);font-size:12.5px;margin:6px 0 12px;letter-spacing:.02em}
+.contact{font-size:13.5px;margin:10px 0;padding:10px 13px;background:var(--accent-soft);border:1px solid #dbe3ec;border-radius:2px}
+.contact .lbl{color:var(--muted);font-family:var(--mono);font-size:11px}
+.eml-verified{color:var(--tier-a);font-weight:600}
+.eml-inferred{color:var(--tier-b)}
+.rationale{font-size:14px;color:#555;font-style:italic;margin:8px 0}
+.angles{margin:12px 0 0;padding-left:0;list-style:none}
+.angles li{background:var(--accent-soft);border-left:2px solid var(--accent);padding:9px 13px;margin:6px 0;font-size:14.5px}
+.angles .ref{display:block;color:var(--muted);font-family:var(--mono);font-size:11.5px;margin-top:4px}
+.arts{font-size:12.5px;color:var(--muted);margin-top:10px}
+.arts a{color:var(--accent)}
+.quotes{font-size:14px;margin:10px 0 0;padding-left:18px;color:#41454c;font-style:italic}
+.pitch{margin:12px 0 0;padding:14px 16px;background:#fbf6ec;border:1px solid #ecdfc4;border-left:2px solid var(--tier-b);border-radius:2px}
+.pitch-h{font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--tier-b);margin-bottom:8px}
+.pitch-sub{font-size:14px;margin-bottom:7px}
+.pitch-body{font-size:13.5px;color:#41454c;line-height:1.7;white-space:normal}
+
+footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--rule);
+  font-family:var(--mono);font-size:11.5px;color:var(--muted);letter-spacing:.03em;line-height:1.9}
+
+@keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@media(max-width:640px){.statbar{grid-template-columns:repeat(2,1fr)}h1{font-size:32px}}
+@media print{
+  body{background:#fff;font-size:11pt;max-width:none}
+  .letterhead,.statbar{animation:none}
+  .card,.pitch,.angles li,.contact{box-shadow:none}
+  .card{break-inside:avoid;border-left-width:3px}
+  a{color:var(--ink)}
+}
 """
 
 
@@ -244,8 +310,7 @@ def _media_list(records: list[dict]) -> list[dict]:
 
 def _media_list_html(records: list[dict]) -> str:
     rows = _media_list(records)
-    parts = ['<div class="sec">📰 媒体清单（Layer 1 —— 先看相关媒体）</div>',
-             '<table class="media"><thead><tr><th>媒体</th><th>层级</th><th>记者数</th><th>含强推</th><th>记者</th></tr></thead><tbody>']
+    parts = ['<table class="media"><thead><tr><th>媒体</th><th>层级</th><th>记者数</th><th>含强推</th><th>记者</th></tr></thead><tbody>']
     for g in rows:
         star = "🟢" if g["has_A"] else ""
         reporters = "、".join(html.escape(n) for n in g["reporters"] if n)
@@ -286,23 +351,60 @@ def _render_html(cfg: BrandConfig, records: list[dict]) -> str:
     b = [r for r in records if r["tier"] == "B"]
     a_cards = [_card_html(r) for r in a] or ['<p class="sub">（无）</p>']
     b_cards = [_card_html(r) for r in b] or ['<p class="sub">（无）</p>']
+    n_outlets = len(_media_list(records))
+    with_email = sum(1 for r in records if r.get("best_email"))
+    generated = datetime.utcnow().strftime("%Y-%m-%d")
+
+    # Letterhead
     body = [
-        f"<h1>{html.escape(cfg.brand)} · 媒体/记者建联名单</h1>",
-        f'<p class="sub">{html.escape(cfg.one_liner)}</p>',
-        '<div class="legend">🟢 <b>Tier A</b>：高相关高置信，强烈推荐建联（verified 联系方式 + sharp quotes）　|　'
-        '🟡 <b>Tier B</b>：中度相关，可建联（inferred 邮箱）。drop 已排除。</div>',
+        '<div class="letterhead">',
+        '<div class="eyebrow">JournoFinder · 媒体 / 记者建联简报</div>',
+        f"<h1>{html.escape(cfg.brand)}</h1>",
+        f'<div class="sub">{html.escape(cfg.one_liner)}</div>' if cfg.one_liner else "",
+        f'<div class="report-meta">Prepared {generated} · 共 {len(records)} 位记者 · {n_outlets} 家媒体</div>',
+        "</div>",
+    ]
+    # Stats
+    body.append('<div class="statbar">')
+    for n, lbl, cls in [(len(records), "记者", ""), (len(a), "Tier A · 强推", "a"),
+                        (len(b), "Tier B · 可建联", "b"), (with_email, "有邮箱", ""),
+                        (n_outlets, "媒体", "")]:
+        body.append(f'<div class="stat"><div class="stat-num {cls}">{n}</div><div class="stat-label">{html.escape(lbl)}</div></div>')
+    body.append("</div>")
+    # The Brief
+    body.append('<div class="sec">The Brief</div>')
+    if cfg.one_liner:
+        body.append(f'<div class="brief-lead">{html.escape(cfg.one_liner)}</div>')
+    if getattr(cfg, "positioning", ""):
+        body.append(f'<div class="brief-body">{html.escape(cfg.positioning)}</div>')
+    if getattr(cfg, "themes", None):
+        body.append('<div class="chips-label">Themes</div><div class="chips">')
+        body.append("".join(f'<span class="chip">{html.escape(t)}</span>' for t in cfg.themes))
+        body.append("</div>")
+    if getattr(cfg, "competitors", None):
+        body.append('<div class="chips-label">Competitors</div><div class="chips">')
+        body.append("".join(f'<span class="chip comp">{html.escape(t)}</span>' for t in cfg.competitors))
+        body.append("</div>")
+    body.append('<div class="legend">🟢 <b>Tier A</b>：高相关高置信，强烈推荐建联（verified 联系方式 + sharp quotes）　|　'
+                '🟡 <b>Tier B</b>：中度相关，可建联（inferred 邮箱）。drop 已排除。</div>')
+    # Layers + cards
+    body += [
+        '<div class="sec">媒体清单 · Layer 1</div>',
         _media_list_html(records),
-        f'<div class="sec">👤 记者花名册（Layer 2 —— 共 {len(records)} 位，下方含分层理由 + 完整 pitch）</div>',
+        f'<div class="sec">记者花名册 · Layer 2 · 共 {len(records)} 位</div>',
         _journalist_table_html(records),
-        f'<div class="sec">🟢 Tier A — 强推（{len(a)}）</div>',
+        f'<div class="sec">🟢 Tier A — 强推 · {len(a)}</div>',
         *a_cards,
-        f'<div class="sec">🟡 Tier B — 可建联（{len(b)}）</div>',
+        f'<div class="sec">🟡 Tier B — 可建联 · {len(b)}</div>',
         *b_cards,
+        '<footer>JournoFinder · 媒体 / 记者建联简报<br>'
+        '流程 — 文章署名发现（NewsAPI.ai · Querit · Brave）→ 相关性打分 → A/B 分层 → '
+        '联系方式核验 → Tier-A 深度增强 + pitch 生成。</footer>',
     ]
     return (f'<!doctype html><html lang="zh"><head><meta charset="utf-8">'
             f'<meta name="viewport" content="width=device-width,initial-scale=1">'
-            f'<title>{html.escape(cfg.brand)} — journofinder</title>'
-            f'<style>{_CSS}</style></head><body>' + "\n".join(body) + "</body></html>")
+            f'<title>{html.escape(cfg.brand)} · 媒体/记者建联简报</title>'
+            f'{_FONTS}<style>{_CSS}</style></head><body>' + "\n".join(p for p in body if p) + "</body></html>")
 
 
 # ---------- CSV ----------
