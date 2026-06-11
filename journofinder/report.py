@@ -95,6 +95,22 @@ def _collect(conn: sqlite3.Connection, search_id: int) -> list[dict[str, Any]]:
                 "ORDER BY published_at DESC LIMIT 3", (r["jid"],)
             ).fetchall()
         ]
+        # angle 引用到的报道 → 匹配该记者文章的真实 url（放卡片文末，可点核实）
+        all_arts = conn.execute(
+            "SELECT title, url FROM articles WHERE journalist_id = ? AND url IS NOT NULL", (r["jid"],)
+        ).fetchall()
+        cited, seen_t = [], set()
+        for ang in d["angles"]:
+            ref = (ang.get("references_article") or "").strip()
+            if not ref:
+                continue
+            for a in all_arts:
+                at = (a["title"] or "").strip()
+                if at and at not in seen_t and (ref.lower() in at.lower() or at.lower() in ref.lower()):
+                    cited.append({"title": at, "url": a["url"]})
+                    seen_t.add(at)
+                    break
+        d["cited"] = cited
         out.append(d)
     return out
 
@@ -269,6 +285,13 @@ def _card_html(d: dict) -> str:
             dt = html.escape(str(q.get("date", "")))
             parts.append(f'<li>“{qt}” <span class="lbl">({dt})</span></li>')
         parts.append("</ul>")
+    if d.get("cited"):
+        clinks = " · ".join(
+            f'<a href="{html.escape(c["url"])}">{html.escape(c["title"][:80])}</a>'
+            for c in d["cited"] if c.get("url")
+        )
+        if clinks:
+            parts.append(f'<div class="arts">📎 angle 引用的报道：{clinks}</div>')
     if d.get("recent_articles"):
         links = " · ".join(
             f'<a href="{html.escape(a["url"] or "")}">{html.escape((a["title"] or "")[:60])}</a>'
@@ -425,7 +448,8 @@ _CSV_COLS = ["tier", "name", "outlet", "media_tier", "outlet_uri", "score", "art
 
 
 def _render_csv(records: list[dict], path: Path) -> None:
-    with path.open("w", newline="", encoding="utf-8") as f:
+    # utf-8-sig (BOM) so Excel/Numbers read the CN columns (media_tier / email_source) correctly
+    with path.open("w", newline="", encoding="utf-8-sig") as f:
         w = csv.writer(f)
         w.writerow(_CSV_COLS)
         for d in records:
