@@ -19,8 +19,9 @@ CREATE TABLE IF NOT EXISTS journalists (
   outlet_uri TEXT,                          -- 媒体域名，如 "techcrunch.com"
   author_uri TEXT,                          -- NewsAPI.ai 的 author uri，常为 first_last@domain
   email TEXT,
-  email_source TEXT,                        -- 'verified' | 'inferred' | 'author_uri'
+  email_source TEXT,                        -- 'verified'(深挖核实) | 'web'(网搜命中) | null。不再推测
   twitter TEXT,
+  linkedin TEXT,
   personal_url TEXT,
   beat TEXT,
   source TEXT DEFAULT 'newsapi',            -- 'newsapi' | 'web'
@@ -81,6 +82,7 @@ CREATE TABLE IF NOT EXISTS enrichment (
   model TEXT,
   verified_email TEXT,
   verified_twitter TEXT,
+  verified_linkedin TEXT,
   personal_url TEXT,
   recent_quotes_json TEXT,
   ran_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -113,11 +115,28 @@ def get_conn(db_path: str | Path) -> sqlite3.Connection:
     return conn
 
 
+# 幂等迁移：对 CREATE IF NOT EXISTS 之外新增的列做 ALTER（老库升级用）。
+# 每项 (table, column, ddl)；列已存在则跳过。
+_MIGRATIONS = [
+    ("journalists", "linkedin", "ALTER TABLE journalists ADD COLUMN linkedin TEXT"),
+    ("enrichment", "verified_linkedin", "ALTER TABLE enrichment ADD COLUMN verified_linkedin TEXT"),
+]
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    for table, column, ddl in _MIGRATIONS:
+        cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in cols:
+            conn.execute(ddl)
+    conn.commit()
+
+
 def init_schema(db_path: str | Path) -> None:
     conn = get_conn(db_path)
     try:
         conn.executescript(SCHEMA)
         conn.commit()
+        _migrate(conn)
     finally:
         conn.close()
 

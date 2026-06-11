@@ -173,8 +173,9 @@ def run_campaign(cfg: BrandConfig, db_path: str | Path, out_path: str | Path,
         tiers = tier(conn, search_id, cfg, scored)
         enrich.run_enrichment(
             conn, search_id, tiers, scored,
-            tier_a_top_n=0 if no_deepdive else cfg.enrich.tier_a_top_n,
             max_deepdive=0 if no_deepdive else cfg.budget.max_deepdive,
+            search_all=(not no_deepdive) and cfg.enrich.search_all,
+            miromind_fallback=(not no_deepdive) and cfg.enrich.miromind_fallback,
         )
         pitch(conn, search_id, cfg, scored, tiers)
 

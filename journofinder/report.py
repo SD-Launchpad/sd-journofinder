@@ -56,10 +56,11 @@ def _collect(conn: sqlite3.Connection, search_id: int) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
         SELECT j.id AS jid, j.name, j.outlet, j.outlet_uri, j.author_uri,
-               j.email, j.email_source, j.twitter, j.personal_url,
+               j.email, j.email_source, j.twitter, j.linkedin, j.personal_url,
                t.tier, t.rationale,
                rs.score, rs.reason AS score_reason,
-               e.verified_email, e.verified_twitter, e.personal_url AS e_personal, e.recent_quotes_json,
+               e.verified_email, e.verified_twitter, e.verified_linkedin,
+               e.personal_url AS e_personal, e.recent_quotes_json,
                pa.angles_json,
                (SELECT COUNT(*) FROM articles a WHERE a.journalist_id = j.id) AS article_count,
                (SELECT MAX(published_at) FROM articles a WHERE a.journalist_id = j.id) AS latest_date
@@ -85,9 +86,10 @@ def _collect(conn: sqlite3.Connection, search_id: int) -> list[dict[str, Any]]:
             d["angles"] = pkg.get("angles", [])
             d["pitch"] = pkg.get("pitch", {}) or {}
         d["quotes"] = json.loads(r["recent_quotes_json"]) if r["recent_quotes_json"] else []
-        # 联系方式：verified 优先，否则用主表（可能是 inferred / author_uri）
+        # 联系方式：verified(深挖) 优先，否则主表(web 网搜命中)。已无推测来源。
         d["best_email"] = r["verified_email"] or r["email"]
         d["best_twitter"] = r["verified_twitter"] or r["twitter"]
+        d["best_linkedin"] = r["verified_linkedin"] or r["linkedin"]
         d["best_personal"] = r["e_personal"] or r["personal_url"]
         d["recent_articles"] = [
             dict(a) for a in conn.execute(
@@ -192,6 +194,7 @@ table.media .rp{color:var(--muted);font-size:12.5px}
 .contact{font-size:13.5px;margin:10px 0;padding:10px 13px;background:var(--accent-soft);border:1px solid #dbe3ec;border-radius:2px}
 .contact .lbl{color:var(--muted);font-family:var(--mono);font-size:11px}
 .eml-verified{color:var(--tier-a);font-weight:600}
+.eml-web{color:var(--accent);font-weight:600}
 .eml-inferred,.eml-unverified{color:var(--tier-b)}
 .rationale{font-size:14px;color:#555;font-style:italic;margin:8px 0}
 .angles{margin:12px 0 0;padding-left:0;list-style:none}
@@ -221,29 +224,58 @@ footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--rule);
 
 
 def _email_display(d: dict) -> tuple[str | None, str, str]:
-    """(email, label, css). Accuracy-first / 宁缺勿编:
-    - verified (MiroMind 核实) → 可信,绿色
-    - author_uri (NewsAPI 署名,格式未核实) → 展示但明确标"未验证·待核实"
-    - inferred (按规则拼的) / none → 不展示(那是猜的)"""
+    """(email, label, css)。只展示真实来源；NewsAPI 的 author_uri 是标识符不是邮箱，绝不展示。
+    - verified (MiroThinker 深挖核实) → 绿色「✓ 已验证」
+    - web (Querit/Brave 网搜命中) → 蓝色「🔎 网搜」
+    - 其它(含历史 author_uri / inferred) → 不展示"""
     if d.get("verified_email"):
         return d["verified_email"], "✓ 已验证", "eml-verified"
-    if d.get("email_source") == "author_uri" and d.get("email"):
-        return d["email"], "未验证 · 署名推测，投递前请核实", "eml-unverified"
+    if d.get("email_source") == "web" and d.get("email"):
+        return d["email"], "🔎 网搜", "eml-web"
     return None, "", ""
 
 
+def _primary_contact(d: dict) -> bool:
+    """是否有任何可验证的联系方式（用于统计「有联系方式」）。"""
+    if d.get("best_linkedin") or d.get("best_twitter") or d.get("best_personal"):
+        return True
+    return _email_display(d)[0] is not None
+
+
+def _contact_cell_html(d: dict) -> str:
+    """花名册 / 媒体表用的简短联系方式单元格，按 LinkedIn > X > Email > Page 取首选。"""
+    if d.get("best_linkedin"):
+        u = d["best_linkedin"]
+        return f'<span class="lbl">LinkedIn:</span> <a href="{html.escape(u)}">{html.escape(u[:42])}</a>'
+    if d.get("best_twitter"):
+        h = d["best_twitter"].lstrip("@")
+        return f'<span class="lbl">X:</span> <a href="https://x.com/{html.escape(h)}">@{html.escape(h)}</a>'
+    email, label, cls = _email_display(d)
+    if email:
+        return f'<span class="{cls}">{html.escape(email)}</span> <span class="lbl">({label})</span>'
+    if d.get("best_personal"):
+        u = d["best_personal"]
+        return f'<span class="lbl">Page:</span> <a href="{html.escape(u)}">{html.escape(u[:42])}</a>'
+    return '<span class="lbl">未公开</span>'
+
+
 def _contact_html(d: dict) -> str:
+    """卡片里完整列出所有命中的联系方式，按优先级 LinkedIn > X > Email > Page 排序。"""
     bits = []
+    if d.get("best_linkedin"):
+        u = html.escape(d["best_linkedin"])
+        bits.append(f'<span class="lbl">LinkedIn:</span> <a href="{u}">{u}</a>')
+    if d.get("best_twitter"):
+        h = html.escape(d["best_twitter"].lstrip("@"))
+        bits.append(f'<span class="lbl">X:</span> <a href="https://x.com/{h}">@{h}</a>')
     email, label, cls = _email_display(d)
     if email:
         bits.append(f'<span class="lbl">email:</span> <span class="{cls}">{html.escape(email)}</span> <span class="lbl">({label})</span>')
-    if d.get("best_twitter"):
-        bits.append(f'<span class="lbl">twitter:</span> {html.escape(d["best_twitter"])}')
     if d.get("best_personal"):
         u = html.escape(d["best_personal"])
         bits.append(f'<span class="lbl">page:</span> <a href="{u}">{u}</a>')
     if not bits:
-        bits.append('<span class="lbl">邮箱未验证 / 未公开 —— 建议查媒体署名页或社媒</span>')
+        bits.append('<span class="lbl">未找到可验证的联系方式 —— 建议查该记者社媒 / 媒体署名页</span>')
     return '<div class="contact">' + " · ".join(bits) + "</div>"
 
 
@@ -358,22 +390,17 @@ def _media_list_html(records: list[dict]) -> str:
 def _journalist_table_html(records: list[dict]) -> str:
     """Layer 2 顶部：记者花名册（记者/媒体/层级/Tier/score/email），与媒体表呼应。"""
     parts = ['<table class="media jt"><thead><tr><th>记者</th><th>媒体</th><th>层级</th>'
-             '<th>Tier</th><th>score</th><th>Email</th></tr></thead><tbody>']
+             '<th>Tier</th><th>score</th><th>联系方式</th></tr></thead><tbody>']
     for d in records:
         mt = _classify_outlet(d.get("outlet"), d.get("outlet_uri"))
         tier = d["tier"]
-        email, label, cls = _email_display(d)
-        if email:
-            email_cell = f'<span class="{cls}">{html.escape(email)}</span> <span class="lbl">({label})</span>'
-        else:
-            email_cell = '<span class="lbl">未验证 / 未公开</span>'
         parts.append(
             f'<tr><td><b>{html.escape(d.get("name") or "")}</b></td>'
             f'<td>{html.escape(d.get("outlet") or "未知")}</td>'
             f'<td><span class="mt mt-{_TIER_ORDER.get(mt,9)}">{html.escape(mt)}</span></td>'
             f'<td><span class="tag {tier}">{tier}</span></td>'
             f'<td>{d.get("score","")}</td>'
-            f'<td class="rp">{email_cell}</td></tr>'
+            f'<td class="rp">{_contact_cell_html(d)}</td></tr>'
         )
     parts.append("</tbody></table>")
     return "\n".join(parts)
@@ -385,7 +412,7 @@ def _render_html(cfg: BrandConfig, records: list[dict]) -> str:
     a_cards = [_card_html(r) for r in a] or ['<p class="sub">（无）</p>']
     b_cards = [_card_html(r) for r in b] or ['<p class="sub">（无）</p>']
     n_outlets = len(_media_list(records))
-    with_email = sum(1 for r in records if r.get("best_email"))
+    with_contact = sum(1 for r in records if _primary_contact(r))
     generated = datetime.utcnow().strftime("%Y-%m-%d")
 
     # Letterhead
@@ -400,7 +427,7 @@ def _render_html(cfg: BrandConfig, records: list[dict]) -> str:
     # Stats
     body.append('<div class="statbar">')
     for n, lbl, cls in [(len(records), "记者", ""), (len(a), "Tier A · 强推", "a"),
-                        (len(b), "Tier B · 可建联", "b"), (with_email, "有邮箱", ""),
+                        (len(b), "Tier B · 可建联", "b"), (with_contact, "有联系方式", ""),
                         (n_outlets, "媒体", "")]:
         body.append(f'<div class="stat"><div class="stat-num {cls}">{n}</div><div class="stat-label">{html.escape(lbl)}</div></div>')
     body.append("</div>")
@@ -418,8 +445,9 @@ def _render_html(cfg: BrandConfig, records: list[dict]) -> str:
         body.append('<div class="chips-label">Competitors</div><div class="chips">')
         body.append("".join(f'<span class="chip comp">{html.escape(t)}</span>' for t in cfg.competitors))
         body.append("</div>")
-    body.append('<div class="legend">🟢 <b>Tier A</b>：高相关高置信，强烈推荐建联（verified 联系方式 + sharp quotes）　|　'
-                '🟡 <b>Tier B</b>：中度相关，可建联（inferred 邮箱）。drop 已排除。</div>')
+    body.append('<div class="legend">🟢 <b>Tier A</b>：高相关高置信，强烈推荐建联　|　'
+                '🟡 <b>Tier B</b>：中度相关，可建联。　联系方式优先级 LinkedIn ＞ X ＞ Email，'
+                '只展示可验证来源（深挖 ✓ / 网搜 🔎），找不到则诚实留空。drop 已排除。</div>')
     # Layers + cards
     body += [
         '<div class="sec">媒体清单 · Layer 1</div>',
@@ -443,7 +471,7 @@ def _render_html(cfg: BrandConfig, records: list[dict]) -> str:
 # ---------- CSV ----------
 
 _CSV_COLS = ["tier", "name", "outlet", "media_tier", "outlet_uri", "score", "article_count", "latest_date",
-             "email", "email_source", "twitter", "personal_url",
+             "linkedin", "twitter", "email", "email_source", "personal_url",
              "pitch_subject", "pitch_body", "angle_1", "angle_2", "angle_3", "tier_rationale"]
 
 
@@ -455,16 +483,16 @@ def _render_csv(records: list[dict], path: Path) -> None:
         for d in records:
             angles = [a.get("angle", "") for a in d.get("angles", [])][:3]
             angles += [""] * (3 - len(angles))
-            # accuracy-first: only verified or author_uri (labelled); inferred dropped
+            # 只输出真实来源 email（verified / web）；linkedin、twitter 按优先级在前
             email, _label, _cls = _email_display(d)
-            esrc = "verified" if d.get("verified_email") else (
-                "author_uri (未验证)" if email else "")
+            esrc = "verified" if d.get("verified_email") else ("web" if email else "")
             pitch = d.get("pitch") or {}
             w.writerow([
                 d["tier"], d.get("name", ""), d.get("outlet", ""),
                 _classify_outlet(d.get("outlet"), d.get("outlet_uri")), d.get("outlet_uri", ""),
                 d.get("score", ""), d.get("article_count", 0), (d.get("latest_date") or "")[:10],
-                email or "", esrc, d.get("best_twitter") or "", d.get("best_personal") or "",
+                d.get("best_linkedin") or "", d.get("best_twitter") or "", email or "", esrc,
+                d.get("best_personal") or "",
                 pitch.get("subject", ""), pitch.get("body", ""),
                 *angles, d.get("rationale", ""),
             ])
@@ -495,11 +523,16 @@ def _render_md(cfg: BrandConfig, records: list[dict]) -> str:
         for i, d in enumerate(recs, 1):
             lines.append(f"### {i}. {d.get('name','')} — {d.get('outlet') or '未知媒体'} [{tier}]")
             lines.append(f"- score {d.get('score','?')} · {d.get('article_count',0)} 篇近期报道 · {(d.get('latest_date') or '')[:10]}")
-            if d.get("best_email"):
-                esrc = "verified" if d.get("verified_email") else (d.get("email_source") or "inferred")
-                lines.append(f"- email: {d['best_email']} ({esrc})")
+            if d.get("best_linkedin"):
+                lines.append(f"- LinkedIn: {d['best_linkedin']}")
             if d.get("best_twitter"):
-                lines.append(f"- twitter: {d['best_twitter']}")
+                lines.append(f"- X: {d['best_twitter']}")
+            md_email, _ml, _mc = _email_display(d)
+            if md_email:
+                esrc = "verified" if d.get("verified_email") else "web"
+                lines.append(f"- email: {md_email} ({esrc})")
+            if d.get("best_personal"):
+                lines.append(f"- page: {d['best_personal']}")
             if d.get("rationale"):
                 lines.append(f"- 分层理由：{d['rationale']}")
             for a in d.get("angles", []):
