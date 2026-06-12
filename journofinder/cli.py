@@ -33,7 +33,7 @@ def campaign(
     db_path: str = typer.Option("journofinder.db", "--db", help="SQLite 路径"),
     out: str = typer.Option("", "--out", help="HTML 输出路径（默认 reports/<brand>.html）"),
     skip_discovery: bool = typer.Option(False, "--skip-discovery", help="跳过抓取，用库内已有文章重跑"),
-    no_deepdive: bool = typer.Option(False, "--no-deepdive", help="跳过 Tier-A MiroMind 深挖（很慢），秒级出报告；之后可异步 enrich + show 补全"),
+    no_deepdive: bool = typer.Option(False, "--no-deepdive", help="跳过 Tier-A Apodex 深挖（很慢），秒级出报告；之后可异步 enrich + show 补全"),
 ):
     """跑完整漏斗：discover → aggregate → score → tier → enrich → pitch → render。"""
     from . import pipeline  # 延迟导入，避免无 key 时 import 链报错
@@ -84,7 +84,7 @@ def enrich(
     """对某次 search 的 A/B 记者补全联系方式（只取真实来源，绝不推测）。
 
     阶段 1：Querit/Brave 网搜 + 文章正文邮箱（便宜，全员）；阶段 2：缺 LinkedIn/X
-    者上 MiroThinker 兜底。优先级 LinkedIn > X > Email。异步交付：先
+    者上 Apodex 兜底。优先级 LinkedIn > X > Email。异步交付：先
     `campaign --no-deepdive` 秒出报告 → 本命令补全 → `show` 重渲。
     """
     from . import aggregate
@@ -104,7 +104,7 @@ def enrich(
             conn, search_id, tiers, journalists,
             max_deepdive=cfg.budget.max_deepdive,
             search_all=cfg.enrich.search_all,
-            miromind_fallback=cfg.enrich.miromind_fallback,
+            apodex_fallback=cfg.enrich.apodex_fallback,
         )
         typer.echo(f"✅ 补全完成：web_hits={stats['web_hits']}/{stats['searched']} · "
                    f"deepdived={stats['deepdived']} · 留空={stats['empty']}。"

@@ -17,13 +17,13 @@ import yaml
 
 @dataclass
 class DiscoveryCfg:
-    # 数据源：newsapi_ai 为主，querit/brave/mirothinker 补召（缺 key 自动跳过）
+    # 数据源：newsapi_ai 为主，querit/brave/apodex 补召（缺 key 自动跳过）
     providers: list[str] = field(default_factory=lambda: ["newsapi_ai", "querit", "brave"])
     date_window_days: int = 30          # 只看近 N 天的报道（NewsAPI 免费档上限 ~30）
     articles_count: int = 100           # NewsAPI.ai 单页上限 100
     pages: int = 1                      # 翻几页扩大池子
     sort_by: str = "date"               # date | sourceImportance(顶 Tier-1 大刊) | rel
-    web_augment: bool = True            # 是否用 querit/brave/mirothinker 补召
+    web_augment: bool = True            # 是否用 querit/brave/apodex 补召
     languages: list[str] = field(default_factory=lambda: ["eng"])
 
 
@@ -39,12 +39,12 @@ class TieringCfg:
 class EnrichCfg:
     tier_a_top_n: int = 10              # 保留向后兼容（阶段 2 上限实际用 budget.max_deepdive）
     search_all: bool = True            # 阶段 1：对全部 A+B 跑便宜网搜（Querit/Brave + 文章正文）
-    miromind_fallback: bool = True     # 阶段 2：缺 LinkedIn/X 时 MiroThinker 兜底
+    apodex_fallback: bool = True       # 阶段 2：缺 LinkedIn/X 时 Apodex 兜底
 
 
 @dataclass
 class BudgetCfg:
-    max_deepdive: int = 10             # 每次 run 的 MiroThinker 深挖硬上限
+    max_deepdive: int = 10             # 每次 run 的 Apodex 深挖硬上限
 
 
 @dataclass

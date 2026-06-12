@@ -5,7 +5,7 @@
 分层（高效优先）：
   阶段 1（便宜）：对全部 A+B 记者跑 Querit/Brave 网搜 + deepseek 抽取，并从文章正文
                   抽 same-org 真邮箱。记者 social presence 强，多数能在这步命中。
-  阶段 2（兜底）：阶段 1 既没拿到 LinkedIn 也没拿到 X 的记者，才上 MiroThinker 深挖
+  阶段 2（兜底）：阶段 1 既没拿到 LinkedIn 也没拿到 X 的记者，才上 Apodex 深挖
                   （受 budget.max_deepdive 上限），结果标 verified。
 
 每个字段都过名字校验（防抓到别人的资料）。任何不确定 → 留空。NewsAPI 的 author_uri
@@ -203,9 +203,9 @@ def run_enrichment(
     tier_a_top_n: int = 10,        # 保留向后兼容（阶段 2 上限实际用 max_deepdive）
     max_deepdive: int = 10,
     search_all: bool = True,
-    miromind_fallback: bool = True,
+    apodex_fallback: bool = True,
 ) -> dict[str, int]:
-    """阶段 1 全员便宜网搜 + 文章正文邮箱；阶段 2 对缺 LinkedIn/X 者 MiroThinker 兜底。
+    """阶段 1 全员便宜网搜 + 文章正文邮箱；阶段 2 对缺 LinkedIn/X 者 Apodex 兜底。
 
     journalists 已按 coverage 排序；tiers[jid] = {'tier','rationale'}。
     返回 {searched, web_hits, deepdived, empty}。
@@ -249,8 +249,8 @@ def run_enrichment(
                     tiers.get(jid, {}).get("tier"), j["name"],
                     bool(raw.get("linkedin")), bool(raw.get("twitter")), bool(raw.get("email")))
 
-    # 阶段 2：MiroThinker 兜底（A 优先，受上限）
-    if miromind_fallback and llm.miromind_available() and need_deepdive:
+    # 阶段 2：Apodex 兜底（A 优先，受上限）
+    if apodex_fallback and llm.apodex_available() and need_deepdive:
         a_first = sorted(need_deepdive, key=lambda x: 0 if tiers.get(x, {}).get("tier") == "A" else 1)
         for jid in a_first[:max_deepdive]:
             j = by_id.get(jid)

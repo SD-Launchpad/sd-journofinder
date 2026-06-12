@@ -1,7 +1,7 @@
 """补召源 —— 捞 NewsAPI.ai 没索引到的独立记者 / newsletter 作者（recall 优先）。
 
 两条路径，缺 key 自动跳过：
-  1. MiroMind 深搜：结构化返回记者名 + 媒体 + 近期文章（强搜索，主补召）
+  1. Apodex 深搜：结构化返回记者名 + 媒体 + 近期文章（强搜索，主补召）
   2. Querit / Brave 网搜：拿 title/snippet/url，再用便宜模型抽取记者署名
 
 输出与 newsapi_ai.fetch_articles 同形（article dict），直接汇入同一聚合流程：
@@ -70,7 +70,7 @@ def _querit_search(query: str, count: int = 10) -> list[dict[str, Any]]:
 
 
 def _candidate_to_article(c: dict, keyword: str) -> dict[str, Any] | None:
-    """MiroMind / 抽取出的记者候选 → article dict（单作者）。"""
+    """Apodex / 抽取出的记者候选 → article dict（单作者）。"""
     name = (c.get("name") or "").strip()
     url = (c.get("article_url") or c.get("url") or "").strip()
     title = (c.get("article_title") or c.get("title") or "").strip()
@@ -131,8 +131,8 @@ def discover_web_journalists(
     topics = ", ".join([*themes, *competitors][:10])
     candidates: list[dict] = []
 
-    # 路径 1：MiroMind 深搜（结构化）
-    candidates += llm.miromind_find_journalists(themes, competitors, n=n)
+    # 路径 1：Apodex 深搜（结构化）
+    candidates += llm.apodex_find_journalists(themes, competitors, n=n)
 
     # 路径 2：Querit / Brave 网搜 + snippet 抽取
     if env.get("QUERIT_API_TOKEN") or env.get("BRAVE_API_KEY"):

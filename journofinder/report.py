@@ -225,7 +225,7 @@ footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--rule);
 
 def _email_display(d: dict) -> tuple[str | None, str, str]:
     """(email, label, css)。只展示真实来源；NewsAPI 的 author_uri 是标识符不是邮箱，绝不展示。
-    - verified (MiroThinker 深挖核实) → 绿色「✓ 已验证」
+    - verified (Apodex 深挖核实) → 绿色「✓ 已验证」
     - web (Querit/Brave 网搜命中) → 蓝色「🔎 网搜」
     - 其它(含历史 author_uri / inferred) → 不展示"""
     if d.get("verified_email"):
