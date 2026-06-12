@@ -29,6 +29,9 @@ DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_RELEVANCE_MODEL = "deepseek/deepseek-chat-v3.1"
 DEFAULT_PITCH_MODEL = "anthropic/claude-sonnet-4.6"
 DEFAULT_DEEPDIVE_MODEL = "mirothinker-1-7-deepresearch"
+# 单次 LLM 调用硬超时（秒）—— 防 MiroThinker SSE 流无限 hang（曾卡死 2h+）。
+# 正常深挖远小于此；超时即按瞬时错误重试/放弃，不阻塞整条 enrich。
+LLM_TIMEOUT_SECONDS = 240
 
 _FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```\s*$", re.MULTILINE)
 _BAD_ESCAPE_RE = re.compile(r'\\(?!["\\/bfnrtu])')
@@ -103,6 +106,7 @@ def _call_once(model: str, prompt: str, max_tokens: int) -> str:
         stream = client.chat.completions.create(
             model=model, max_tokens=max_tokens,
             messages=[{"role": "user", "content": prompt}], stream=True,
+            timeout=LLM_TIMEOUT_SECONDS,
         )
         buf: list[str] = []
         for chunk in stream:
@@ -115,6 +119,7 @@ def _call_once(model: str, prompt: str, max_tokens: int) -> str:
     resp = client.chat.completions.create(
         model=model, max_tokens=max_tokens,
         messages=[{"role": "user", "content": prompt}],
+        timeout=LLM_TIMEOUT_SECONDS,
     )
     return resp.choices[0].message.content or ""
 
@@ -386,16 +391,18 @@ Journalist: {journalist_name}
 Outlet: {outlet or 'unknown'}
 Recent coverage signal: {signal[:400]}
 
-Find, only if you can verify from real sources:
-- their professional email (or the outlet's verified byline-contact email)
+Find, only if you can verify from real sources (NEVER guess or construct any handle/address):
+- their LinkedIn profile URL (https://www.linkedin.com/in/...)
 - their Twitter/X handle
+- their professional email (or the outlet's verified byline-contact email)
 - their personal site / staff page / author page
 - 2-3 SHARP, specific quotes or claims from their recent articles, each with date and source url
 
 Return JSON only:
 {{
-  "email": "<or null>",
+  "linkedin": "<full LinkedIn URL or null>",
   "twitter": "<@handle or null>",
+  "email": "<or null>",
   "personal_url": "<or null>",
   "recent_quotes": [{{"quote": "...", "date": "YYYY-MM-DD", "source": "<url>"}}]
 }}"""
@@ -408,8 +415,61 @@ Return JSON only:
         return {}
     quotes = result.get("recent_quotes")
     return {
+        "linkedin": (result.get("linkedin") or None),
         "email": (result.get("email") or None),
         "twitter": (result.get("twitter") or None),
         "personal_url": (result.get("personal_url") or None),
         "recent_quotes": quotes if isinstance(quotes, list) else [],
+    }
+
+
+# ---------- 6. 从网搜结果抽联系方式（便宜模型，阶段 1） ----------
+
+def extract_contact_from_search(name: str, outlet: str | None, rows: list[dict]) -> dict:
+    """从 Brave/Querit 搜索结果（title/url/snippet）里判定哪条联系方式属于这位记者。
+
+    用便宜模型（relevance_model / deepseek）。严格：只在结果明确属于本人时返回；
+    任何不确定一律 null —— 绝不猜测、绝不拼造地址或 handle。
+    返回 {linkedin, twitter, email, personal_url}（缺失为 None）。
+    """
+    if not rows:
+        return {}
+    listing = "\n".join(
+        f'{i}. {r.get("title","")} | {r.get("url","")} | {r.get("snippet","")[:200]}'
+        for i, r in enumerate(rows[:20], 1)
+    )
+    prompt = f"""You are extracting verified contact details for ONE specific journalist
+from web search results. Be strict: only return a value when the result CLEARLY belongs
+to THIS person (their full name matches the profile/byline). If unsure, return null.
+NEVER guess, infer, or construct an email address or handle.
+
+Journalist: {name}{f" ({outlet})" if outlet else ""}
+
+Search results:
+{listing}
+
+Return JSON only:
+{{
+  "linkedin": "<full https://www.linkedin.com/in/... URL that is THIS journalist, else null>",
+  "twitter": "<@handle or https://x.com/handle that is THIS journalist, else null>",
+  "email": "<professional email explicitly shown for THIS journalist, else null>",
+  "personal_url": "<their personal site / staff author page, else null>"
+}}"""
+    try:
+        result = call_json(relevance_model(), prompt, max_tokens=400)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("extract_contact_from_search 失败 (%s): %s", name, exc)
+        return {}
+    if not isinstance(result, dict):
+        return {}
+
+    def _clean(v: Any) -> str | None:
+        s = str(v).strip() if v else ""
+        return s or None
+
+    return {
+        "linkedin": _clean(result.get("linkedin")),
+        "twitter": _clean(result.get("twitter")),
+        "email": _clean(result.get("email")),
+        "personal_url": _clean(result.get("personal_url")),
     }

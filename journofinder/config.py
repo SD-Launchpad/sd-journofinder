@@ -37,7 +37,9 @@ class TieringCfg:
 
 @dataclass
 class EnrichCfg:
-    tier_a_top_n: int = 10              # 只对 Tier-A 的前 N 名跑 MiroThinker 深挖
+    tier_a_top_n: int = 10              # 保留向后兼容（阶段 2 上限实际用 budget.max_deepdive）
+    search_all: bool = True            # 阶段 1：对全部 A+B 跑便宜网搜（Querit/Brave + 文章正文）
+    miromind_fallback: bool = True     # 阶段 2：缺 LinkedIn/X 时 MiroThinker 兜底
 
 
 @dataclass

@@ -61,6 +61,7 @@ def tier(
     v = value.strip()
     if v not in ("A", "B", "drop"):
         raise typer.BadParameter("value 必须是 A / B / drop")
+    db.init_schema(db_path)  # 幂等：确保 schema/迁移最新（老库补 linkedin 列）
     conn = db.get_conn(db_path)
     try:
         conn.execute(
@@ -80,15 +81,17 @@ def enrich(
     brand_yaml: str = typer.Argument(..., help="品牌配置 YAML（取 enrich/budget 配置）"),
     db_path: str = typer.Option("journofinder.db", "--db"),
 ):
-    """对某次 search 的 Tier-A 记者跑 MiroMind 深挖（慢）。
+    """对某次 search 的 A/B 记者补全联系方式（只取真实来源，绝不推测）。
 
-    异步交付模式：先 `campaign --no-deepdive` 秒出报告 → 本命令后台补深挖 →
-    `show` 重渲带上 verified 联系方式 + sharp quotes。
+    阶段 1：Querit/Brave 网搜 + 文章正文邮箱（便宜，全员）；阶段 2：缺 LinkedIn/X
+    者上 MiroThinker 兜底。优先级 LinkedIn > X > Email。异步交付：先
+    `campaign --no-deepdive` 秒出报告 → 本命令补全 → `show` 重渲。
     """
     from . import aggregate
     from . import enrich as enrich_mod
 
     cfg = load_brand_config(brand_yaml)
+    db.init_schema(db_path)  # 幂等：确保 schema/迁移最新（老库补 linkedin 列）
     conn = db.get_conn(db_path)
     try:
         journalists = aggregate.coverage_metrics(conn)
@@ -99,9 +102,12 @@ def enrich(
         tiers = {r["journalist_id"]: {"tier": r["tier"], "rationale": r["rationale"]} for r in rows}
         stats = enrich_mod.run_enrichment(
             conn, search_id, tiers, journalists,
-            tier_a_top_n=cfg.enrich.tier_a_top_n, max_deepdive=cfg.budget.max_deepdive,
+            max_deepdive=cfg.budget.max_deepdive,
+            search_all=cfg.enrich.search_all,
+            miromind_fallback=cfg.enrich.miromind_fallback,
         )
-        typer.echo(f"✅ 深挖完成：deepdived={stats['deepdived']} · inferred={stats['inferred']}。"
+        typer.echo(f"✅ 补全完成：web_hits={stats['web_hits']}/{stats['searched']} · "
+                   f"deepdived={stats['deepdived']} · 留空={stats['empty']}。"
                    f"运行 `journofinder show {search_id} {brand_yaml}` 重渲报告。")
     finally:
         conn.close()
@@ -119,6 +125,7 @@ def show(
 
     cfg = load_brand_config(brand_yaml)
     out_path = Path(out) if out else _default_out(cfg.brand)
+    db.init_schema(db_path)  # 幂等：确保 schema/迁移最新（老库补 linkedin 列）
     conn = db.get_conn(db_path)
     try:
         summary = report.render(conn, search_id, cfg, out_path)
