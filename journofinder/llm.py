@@ -1,13 +1,13 @@
 """LLM 客户端（OpenAI 兼容）+ 记者语境的 prompts。
 
-路由：mirothinker-* 模型走 MiroMind，其余走 OpenRouter。
+路由：apodex-* 模型走 Apodex，其余走 OpenRouter。
 模型分工：
   relevance 打分 → deepseek（便宜批量）
   tier 分层 / pitch angle → claude-sonnet（判断任务，旗舰）
-  记者补召 / 联系方式深挖 → mirothinker-deepresearch（强搜索）
+  记者补召 / 联系方式深挖 → apodex-deepresearch（强搜索）
 
-改编自 shanda/pitchfinder/pitchfinder/llm.py：prompt 从「创作者」改成「记者/媒体」，
-MiroMind key 兼容 MIROMIND_API_KEY 与 MIROTHINKER_API_KEY 两种命名。
+改编自 shanda/pitchfinder/pitchfinder/llm.py：prompt 从「创作者」改成「记者/媒体」。
+Apodex（原 MiroMind 升级版）走 APODEX_API_KEY。
 """
 
 from __future__ import annotations
@@ -28,8 +28,8 @@ logger = logging.getLogger("journofinder.llm")
 DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_RELEVANCE_MODEL = "deepseek/deepseek-chat-v3.1"
 DEFAULT_PITCH_MODEL = "anthropic/claude-sonnet-4.6"
-DEFAULT_DEEPDIVE_MODEL = "mirothinker-1-7-deepresearch"
-# 单次 LLM 调用硬超时（秒）—— 防 MiroThinker SSE 流无限 hang（曾卡死 2h+）。
+DEFAULT_DEEPDIVE_MODEL = "apodex-1-0-deepresearch"
+# 单次 LLM 调用硬超时（秒）—— 防 Apodex SSE 流无限 hang（曾卡死 2h+）。
 # 正常深挖远小于此；超时即按瞬时错误重试/放弃，不阻塞整条 enrich。
 LLM_TIMEOUT_SECONDS = 240
 
@@ -38,12 +38,12 @@ _BAD_ESCAPE_RE = re.compile(r'\\(?!["\\/bfnrtu])')
 
 
 def _client_for_model(model: str) -> OpenAI:
-    """mirothinker-* → MiroMind；其余 → OpenRouter。"""
-    if model.startswith("mirothinker"):
-        api_key = env.get("MIROMIND_API_KEY") or env.get("MIROTHINKER_API_KEY")
+    """apodex-* → Apodex；其余 → OpenRouter。"""
+    if model.startswith("apodex"):
+        api_key = env.get("APODEX_API_KEY")
         if not api_key:
-            raise RuntimeError("MIROMIND_API_KEY / MIROTHINKER_API_KEY 均未设置")
-        base_url = env.get("MIROMIND_BASE_URL", "https://api.miromind.ai/v1")
+            raise RuntimeError("APODEX_API_KEY 未设置")
+        base_url = env.get("APODEX_BASE_URL", "https://api.apodex.ai/v1")
         return OpenAI(api_key=api_key, base_url=base_url)
 
     api_key = env.get("OPENROUTER_API_KEY")
@@ -70,8 +70,8 @@ def deepdive_model() -> str:
     return env.get("JOURNO_DEEPDIVE_MODEL", DEFAULT_DEEPDIVE_MODEL)
 
 
-def miromind_available() -> bool:
-    return bool(env.get("MIROMIND_API_KEY") or env.get("MIROTHINKER_API_KEY"))
+def apodex_available() -> bool:
+    return bool(env.get("APODEX_API_KEY"))
 
 
 # ---------- JSON 解析（容错） ----------
@@ -102,7 +102,7 @@ def _parse_json(text: str) -> Any:
 
 def _call_once(model: str, prompt: str, max_tokens: int) -> str:
     client = _client_for_model(model)
-    if model.startswith("mirothinker"):  # MiroMind 用流式 SSE
+    if model.startswith("apodex"):  # Apodex 用流式 SSE
         stream = client.chat.completions.create(
             model=model, max_tokens=max_tokens,
             messages=[{"role": "user", "content": prompt}], stream=True,
@@ -334,14 +334,14 @@ Return JSON only:
     return {"angles": angles, "pitch": pitch}
 
 
-# ---------- 4. MiroMind 记者补召（强搜索） ----------
+# ---------- 4. Apodex 记者补召（强搜索） ----------
 
-def miromind_find_journalists(themes: list[str], competitors: list[str], n: int = 15) -> list[dict]:
-    """用 MiroMind 深搜补召 NewsAPI 未索引的独立记者/newsletter 作者。
+def apodex_find_journalists(themes: list[str], competitors: list[str], n: int = 15) -> list[dict]:
+    """用 Apodex 深搜补召 NewsAPI 未索引的独立记者/newsletter 作者。
 
     返回 [{name, outlet, outlet_uri, article_title, article_url}]。失败/无 key → []。
     """
-    if not miromind_available():
+    if not apodex_available():
         return []
     topics = ", ".join([*themes, *competitors][:10])
     prompt = f"""Find up to {n} INDIVIDUAL journalists, reporters, columnists, or independent
@@ -359,7 +359,7 @@ Return JSON only (no prose):
     try:
         result = call_json(deepdive_model(), prompt, max_tokens=2048)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("miromind_find_journalists 失败: %s", exc)
+        logger.warning("apodex_find_journalists 失败: %s", exc)
         return []
     if not isinstance(result, list):
         return []
@@ -376,14 +376,14 @@ Return JSON only (no prose):
     return out
 
 
-# ---------- 5. 联系方式深挖（Tier-A，MiroMind） ----------
+# ---------- 5. 联系方式深挖（Tier-A，Apodex） ----------
 
 def deepdive_contact(journalist_name: str, outlet: str | None, signal: str) -> dict:
     """对 Tier-A 记者深挖 verified 联系方式 + 近期 sharp quotes。
 
     返回 {email, twitter, personal_url, recent_quotes: [{quote, date, source}]}。
     """
-    if not miromind_available():
+    if not apodex_available():
         return {}
     prompt = f"""Research this journalist and return verified contact + recent context.
 

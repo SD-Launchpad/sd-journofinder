@@ -37,7 +37,7 @@ cp .env.example .env   # 用编辑器填入你的 key（别贴在对话里）
 |---|---|---|
 | `OPENROUTER_API_KEY` | ✅ | 打分 / 分层 / 写 pitch |
 | `NEWSAPI_AI_KEY` | ✅ | 主数据源（免费档 2000 搜/月，近 30 天）。注册：https://newsapi.ai/ |
-| `MIROMIND_API_KEY` / `MIROTHINKER_API_KEY` | 可选 | 深挖联系方式（慢，默认不跑） |
+| `APODEX_API_KEY` | 可选 | 深挖联系方式（慢，默认不跑） |
 | `QUERIT_API_TOKEN` / `BRAVE_API_KEY` | 可选 | 网搜补召 |
 
 缺可选 key 不影响主流程。
