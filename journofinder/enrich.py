@@ -130,7 +130,10 @@ def _validate_contact(name: str, outlet_uri: str | None, raw: dict) -> dict:
 def search_contact(name: str, outlet: str | None, outlet_uri: str | None) -> dict:
     """Querit/Brave 网搜 → deepseek 抽取 → 名字校验。缺 key 自动返回空。"""
     q = f'"{name}" {outlet or ""} (linkedin OR "x.com" OR twitter)'.strip()
-    rows = web_discovery._querit_search(q, 8) + web_discovery._brave_search(q, 8)
+    # Querit 主（合约不限速）；Querit 召回不足时才补 Brave（免费档 ~1 req/s，避免限流）
+    rows = web_discovery._querit_search(q, 8)
+    if len(rows) < 4:
+        rows += web_discovery._brave_search(q, 8)
     if not rows:
         return {}
     raw = llm.extract_contact_from_search(name, outlet, rows)

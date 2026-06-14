@@ -134,13 +134,16 @@ def discover_web_journalists(
     # 路径 1：Apodex 深搜（结构化）
     candidates += llm.apodex_find_journalists(themes, competitors, n=n)
 
-    # 路径 2：Querit / Brave 网搜 + snippet 抽取
+    # 路径 2：Querit 主 / Brave 辅 网搜 + snippet 抽取
     if env.get("QUERIT_API_TOKEN") or env.get("BRAVE_API_KEY"):
         rows: list[dict] = []
         for t in [*themes, *competitors][:6]:
             q = f'{t} reporter OR journalist coverage 2026'
-            rows += _querit_search(q, 8)
-            rows += _brave_search(q, 8)
+            # Querit 主（不限速）；该 query Querit 召回不足才补 Brave（免费档限流）
+            r = _querit_search(q, 8)
+            if len(r) < 4:
+                r += _brave_search(q, 8)
+            rows += r
         candidates += _extract_from_snippets(rows, topics)
 
     # 转 article dict + 去重（按 name+outlet_uri）
