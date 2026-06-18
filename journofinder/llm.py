@@ -124,8 +124,18 @@ def _call_once(model: str, prompt: str, max_tokens: int) -> str:
     return resp.choices[0].message.content or ""
 
 
+def _is_timeout(exc: Exception) -> bool:
+    """识别读超时（httpx/openai 超时类或消息含 timeout）。"""
+    s = f"{type(exc).__name__} {exc}".lower()
+    return "timeout" in s or "timed out" in s
+
+
 def call_json(model: str, prompt: str, max_tokens: int = 1024, max_retries: int = 2) -> Any:
-    """期望 JSON 输出的 LLM 调用，空响应/解析失败/瞬时错误时退避重试。失败抛出。"""
+    """期望 JSON 输出的 LLM 调用，空响应/解析失败/瞬时错误时退避重试。失败抛出。
+
+    超时即放弃、不重试：deepresearch 超时多为服务端卡死，重试只会再等一个完整
+    LLM_TIMEOUT_SECONDS 窗口（曾让单个深挖白白吃满 3×240s）。
+    """
     last_exc: Exception | None = None
     for attempt in range(max_retries + 1):
         try:
@@ -135,6 +145,9 @@ def call_json(model: str, prompt: str, max_tokens: int = 1024, max_retries: int 
             return _parse_json(text)
         except Exception as exc:  # noqa: BLE001
             last_exc = exc
+            if _is_timeout(exc):
+                logger.warning("LLM 调用超时，放弃不重试 (model=%s): %s", model, exc)
+                break
             if attempt < max_retries:
                 delay = (2 ** attempt) + random.uniform(0, 0.5)
                 logger.warning("LLM 调用 %d/%d 失败 (model=%s): %s — %.1fs 后重试",

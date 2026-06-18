@@ -18,6 +18,7 @@ import json
 import logging
 import re
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 from . import llm
@@ -25,6 +26,9 @@ from .sources import web_discovery
 from .textutil import host_of
 
 logger = logging.getLogger("journofinder.enrich")
+
+# 阶段 2 Apodex 深挖并发数（单个 deepresearch 慢，并发缩短墙钟）。
+DEEPDIVE_WORKERS = 4
 
 # 事务/通用邮箱本地名 —— 不是个人记者邮箱，一律丢。
 _GENERIC_LOCALS = {
@@ -252,24 +256,35 @@ def run_enrichment(
                     tiers.get(jid, {}).get("tier"), j["name"],
                     bool(raw.get("linkedin")), bool(raw.get("twitter")), bool(raw.get("email")))
 
-    # 阶段 2：Apodex 兜底（A 优先，受上限）
+    # 阶段 2：Apodex 兜底（A 优先，受上限）。深挖是网络密集且单个慢（2-8min），并发跑；
+    # SQLite 连接不跨线程 —— 仅在主线程 _save，线程里只做 Apodex 调用。
     if apodex_fallback and llm.apodex_available() and need_deepdive:
         a_first = sorted(need_deepdive, key=lambda x: 0 if tiers.get(x, {}).get("tier") == "A" else 1)
-        for jid in a_first[:max_deepdive]:
-            j = by_id.get(jid)
-            if not j:
-                continue
-            dd = llm.deepdive_contact(j["name"], j.get("outlet"), j.get("signal") or "")
-            v = _validate_contact(j["name"], j.get("outlet_uri"), dd)
-            quotes = dd.get("recent_quotes") or []
-            if any(v.get(k) for k in ("linkedin", "twitter", "email", "personal_url")) or quotes:
-                _save(conn, search_id, jid, model=llm.deepdive_model(), verified=True,
-                      linkedin=v.get("linkedin"), email=v.get("email"),
-                      twitter=v.get("twitter"), personal_url=v.get("personal_url"),
-                      email_source="verified" if v.get("email") else None, quotes=quotes)
-                stats["deepdived"] += 1
-            logger.info("阶段2深挖 [A] %s — linkedin=%s twitter=%s email=%s",
-                        j["name"], bool(v.get("linkedin")), bool(v.get("twitter")), bool(v.get("email")))
+        targets = [jid for jid in a_first[:max_deepdive] if by_id.get(jid)]
+
+        def _deepdive_one(jid: int) -> tuple[int, dict]:
+            j = by_id[jid]
+            return jid, llm.deepdive_contact(j["name"], j.get("outlet"), j.get("signal") or "")
+
+        with ThreadPoolExecutor(max_workers=min(DEEPDIVE_WORKERS, len(targets) or 1)) as ex:
+            for fut in as_completed([ex.submit(_deepdive_one, jid) for jid in targets]):
+                try:
+                    jid, dd = fut.result()
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("阶段2深挖失败: %s", exc)
+                    continue
+                j = by_id[jid]
+                v = _validate_contact(j["name"], j.get("outlet_uri"), dd)
+                quotes = dd.get("recent_quotes") or []
+                if any(v.get(k) for k in ("linkedin", "twitter", "email", "personal_url")) or quotes:
+                    _save(conn, search_id, jid, model=llm.deepdive_model(), verified=True,
+                          linkedin=v.get("linkedin"), email=v.get("email"),
+                          twitter=v.get("twitter"), personal_url=v.get("personal_url"),
+                          email_source="verified" if v.get("email") else None, quotes=quotes)
+                    stats["deepdived"] += 1
+                logger.info("阶段2深挖 [%s] %s — linkedin=%s twitter=%s email=%s",
+                            tiers.get(jid, {}).get("tier"), j["name"],
+                            bool(v.get("linkedin")), bool(v.get("twitter")), bool(v.get("email")))
 
     # empty：目标里既无 linkedin/twitter/email/personal 的
     placed = conn.execute(
