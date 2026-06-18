@@ -45,6 +45,7 @@ class EnrichCfg:
 @dataclass
 class BudgetCfg:
     max_deepdive: int = 10             # 每次 run 的 Apodex 深挖硬上限
+    pitch_b_top_n: int = 60            # pitch angle：A 全做，B 只给分数最高的前 N（省 LLM）
 
 
 @dataclass

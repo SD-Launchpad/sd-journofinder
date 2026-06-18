@@ -123,10 +123,16 @@ def tier(conn: sqlite3.Connection, search_id: int, cfg: BrandConfig, scored: lis
 
 def pitch(conn: sqlite3.Connection, search_id: int, cfg: BrandConfig,
           scored: list[dict], tiers: dict[int, dict], max_workers: int = 8) -> int:
-    """对 A/B 记者生成 1-3 个 pitch angle，写 pitch_angles（并发，避免几十个顺序 sonnet 太慢）。"""
+    """对 A/B 记者生成 1-3 个 pitch angle，写 pitch_angles（并发，避免几十个顺序 sonnet 太慢）。
+
+    A 全做；B 只给分数最高的前 budget.pitch_b_top_n 个（省 LLM，B 本就是次优先级）。
+    """
     brand_summary = cfg.brand_summary()
     do_not = cfg.do_not
-    targets = [j for j in scored if tiers.get(j["journalist_id"], {}).get("tier") in ("A", "B")]
+    a_targets = [j for j in scored if tiers.get(j["journalist_id"], {}).get("tier") == "A"]
+    b_targets = [j for j in scored if tiers.get(j["journalist_id"], {}).get("tier") == "B"]
+    b_targets = sorted(b_targets, key=lambda j: j.get("score", 0), reverse=True)[: cfg.budget.pitch_b_top_n]
+    targets = a_targets + b_targets
     # 先在主线程取每个记者的近期文章（SQLite 连接不跨线程共享）
     payloads = [(j["journalist_id"], j["name"], j.get("outlet"),
                  aggregate.top_articles_for(conn, j["journalist_id"], limit=3))
